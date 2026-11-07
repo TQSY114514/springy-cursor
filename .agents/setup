@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Prepares a fresh Amp orb: installs npm dependencies (monaco-editor for the
+# playground) and warms the npx cache for @vscode/vsce used to package the VSIX.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+step() {
+	local start=$SECONDS
+	echo "==> $*"
+	"$@"
+	echo "    done in $((SECONDS - start))s"
+}
+
+# Node.js and npm come with the orb base image.
+command -v node >/dev/null && command -v npm >/dev/null
+
+# `npm install` is a fast no-op when node_modules restored from a snapshot
+# already matches package-lock.json; --no-save keeps the lockfile untouched.
+step npm install --no-save --no-audit --no-fund
+step npx --yes @vscode/vsce --version
