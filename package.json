@@ -5,6 +5,10 @@
 	"version": "0.1.0",
 	"publisher": "tqsy",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/TQSY114514/springy-cursor.git"
+	},
 	"engines": {
 		"vscode": "^1.85.0"
 	},
@@ -44,8 +48,8 @@
 				"springyCursor.color": {
 					"type": "string",
 					"default": "#FFC0CB",
-					"pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-					"description": "Trail color as #RGB, #RRGGBB or #RRGGBBAA."
+					"pattern": "^(#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8}))?$",
+					"description": "Trail color as #RGB, #RRGGBB or #RRGGBBAA. Leave empty to use the theme's cursor color (--vscode-editorCursor-foreground)."
 				},
 				"springyCursor.opacity": {
 					"type": "number",
@@ -65,6 +69,23 @@
 					"minimum": 0,
 					"description": "Glow blur radius as a multiple of the cursor size."
 				},
+				"springyCursor.preset": {
+					"type": "string",
+					"enum": [
+						"neovide",
+						"subtle",
+						"zed",
+						"custom"
+					],
+					"enumDescriptions": [
+						"Classic elastic Neovide-style cursor smear.",
+						"Shorter, understated trail with quick recovery.",
+						"Smooth, cohesive Zed-like cursor glide without hard leading snap.",
+						"Use custom animationLength, rankTrailFactors, and snap parameters."
+					],
+					"default": "neovide",
+					"description": "Cursor trail physics preset."
+				},
 				"springyCursor.animationLength": {
 					"type": "number",
 					"default": 0.125,
@@ -76,8 +97,57 @@
 					"default": 0.05,
 					"minimum": 0.01,
 					"description": "Animation length in seconds for short moves on the same line, such as typing."
+				},
+				"springyCursor.animateOnTyping": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable cursor trail for short single-line movements when typing."
+				},
+				"springyCursor.animateOnSelection": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable cursor trail while selecting text."
+				},
+				"springyCursor.rankTrailFactors": {
+					"type": "array",
+					"default": [
+						1,
+						0.9,
+						0.5,
+						0.3
+					],
+					"minItems": 4,
+					"maxItems": 4,
+					"items": {
+						"type": "number",
+						"minimum": 0.05,
+						"maximum": 2
+					},
+					"description": "Trail duration multipliers for the 4 corners ordered from most trailing (rank 0) to most leading (rank 3)."
+				},
+				"springyCursor.hardSnap": {
+					"type": "boolean",
+					"default": true,
+					"description": "Snap leading corners quickly toward the destination for an elastic stretch effect."
+				},
+				"springyCursor.leadingSnapFactor": {
+					"type": "number",
+					"default": 0.1,
+					"minimum": 0.01,
+					"maximum": 1,
+					"description": "Animation length multiplier for leading corners when hardSnap is enabled."
+				},
+				"springyCursor.leadingSnapThreshold": {
+					"type": "number",
+					"default": 0.5,
+					"minimum": 0,
+					"maximum": 1,
+					"description": "Direction alignment threshold (0 to 1) above which a corner is treated as a leading corner."
 				}
 			}
 		}
+	},
+	"devDependencies": {
+		"monaco-editor": "^0.57.0"
 	}
 }

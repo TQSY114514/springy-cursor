@@ -18,8 +18,15 @@ function writeScript(context) {
 		opacity: cfg.get('opacity'),
 		glow: cfg.get('glow'),
 		glowBlur: cfg.get('glowBlur'),
+		preset: cfg.get('preset'),
 		animationLength: cfg.get('animationLength'),
 		shortAnimationLength: cfg.get('shortAnimationLength'),
+		animateOnTyping: cfg.get('animateOnTyping'),
+		animateOnSelection: cfg.get('animateOnSelection'),
+		rankTrailFactors: cfg.get('rankTrailFactors'),
+		hardSnap: cfg.get('hardSnap'),
+		leadingSnapFactor: cfg.get('leadingSnapFactor'),
+		leadingSnapThreshold: cfg.get('leadingSnapThreshold'),
 	};
 	const template = fs.readFileSync(path.join(context.extensionPath, 'runtime', 'springy-cursor.js'), 'utf8');
 	const script = template.replace('/*__SPRINGY_CONFIG__*/', `const CONFIG = ${JSON.stringify(config)};`);

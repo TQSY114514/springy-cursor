@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Springy Cursor Playground (M3 Testbench)</title>
+	<link
+		rel="stylesheet"
+		href="../node_modules/monaco-editor/min/vs/editor/editor.main.css"
+	/>
+	<style>
+		:root {
+			--vscode-editorCursor-foreground: #00e5ff;
+		}
+		* {
+			box-sizing: border-box;
+		}
+		html,
+		body {
+			margin: 0;
+			padding: 0;
+			width: 100%;
+			height: 100%;
+			overflow: hidden;
+			background: #1e1e1e;
+			color: #d4d4d4;
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+				sans-serif;
+			display: flex;
+			flex-direction: column;
+		}
+		.toolbar {
+			min-height: 48px;
+			background: #252526;
+			border-bottom: 1px solid #3c3c3c;
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			padding: 6px 12px;
+			gap: 6px;
+			flex-shrink: 0;
+			z-index: 10;
+		}
+		.toolbar-title {
+			font-weight: 600;
+			font-size: 13px;
+			color: #ff9eb5;
+			margin-right: 4px;
+			white-space: nowrap;
+		}
+		.toolbar button,
+		.toolbar select {
+			background: #333337;
+			color: #e0e0e0;
+			border: 1px solid #454545;
+			border-radius: 4px;
+			padding: 4px 8px;
+			font-size: 12px;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+		.toolbar button:hover,
+		.toolbar select:hover {
+			background: #3e3e42;
+			border-color: #ff9eb5;
+		}
+		.toolbar label {
+			font-size: 12px;
+			display: inline-flex;
+			align-items: center;
+			gap: 4px;
+			cursor: pointer;
+			user-select: none;
+			color: #cccccc;
+		}
+		.metrics {
+			margin-left: auto;
+			display: flex;
+			gap: 8px;
+			font-size: 12px;
+			font-family: monospace;
+			color: #9cdcfe;
+			white-space: nowrap;
+		}
+		.metrics span {
+			background: #1e1e1e;
+			padding: 3px 8px;
+			border-radius: 4px;
+			border: 1px solid #333;
+		}
+		.workbench {
+			flex: 1;
+			display: flex;
+			width: 100%;
+			min-height: 0;
+			position: relative;
+		}
+		.pane {
+			flex: 1;
+			height: 100%;
+			position: relative;
+			overflow: hidden;
+		}
+		.divider {
+			width: 6px;
+			height: 100%;
+			background: #2d2d2d;
+			border-left: 1px solid #3c3c3c;
+			border-right: 1px solid #3c3c3c;
+			flex-shrink: 0;
+		}
+	</style>
+</head>
+<body>
+	<div class="toolbar">
+		<div class="toolbar-title">Springy Cursor</div>
+		<button id="btn-typing">1. 单行打字</button>
+		<button id="btn-jump">2. 跨行跳转</button>
+		<button id="btn-multi">3. 多光标</button>
+		<button id="btn-split">4. 分屏跳转</button>
+		<button id="btn-scroll">5. 滚动贴合</button>
+		<button id="btn-select">6. 选区跳转</button>
+		<button id="btn-idle">7. 空闲5s</button>
+		<select id="sel-preset" title="预设手感">
+			<option value="neovide">Preset: Neovide</option>
+			<option value="subtle">Preset: Subtle</option>
+			<option value="zed">Preset: Zed</option>
+		</select>
+		<select id="sel-style" title="光标样式 (Vim 模式)">
+			<option value="line">Style: Line (Insert)</option>
+			<option value="block">Style: Block (Normal)</option>
+			<option value="underline">Style: Underline (Replace)</option>
+		</select>
+		<label><input type="checkbox" id="chk-theme-color" /> 主题色</label>
+		<label><input type="checkbox" id="chk-typing" checked /> 打字拖尾</label>
+		<label><input type="checkbox" id="chk-selection" checked /> 选区拖尾</label>
+		<div class="metrics">
+			<span id="metric-raf">rAF: 0</span>
+			<span id="metric-dpr">DPR: 1</span>
+			<span id="metric-status">Ready</span>
+		</div>
+	</div>
+	<div class="workbench">
+		<div id="editor-left" class="pane"></div>
+		<div class="divider"></div>
+		<div id="editor-right" class="pane"></div>
+	</div>
+
+	<script>
+		// 统计 requestAnimationFrame 调用次数（不触发 DOM 改动，避免干扰 MutationObserver）
+		window.__rafTotal = 0;
+		const origRAF = window.requestAnimationFrame.bind(window);
+		window.requestAnimationFrame = function (cb) {
+			return origRAF(function (ts) {
+				window.__rafTotal++;
+				cb(ts);
+			});
+		};
+
+		window.SPRINGY_CONFIG = {
+			color: "#FFC0CB",
+			opacity: 1,
+			glow: true,
+			glowBlur: 0.5,
+			preset: "neovide",
+			animationLength: 0.125,
+			shortAnimationLength: 0.05,
+			animateOnTyping: true,
+			animateOnSelection: true,
+		};
+	</script>
+	<script src="../runtime/springy-cursor.js"></script>
+	<script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+	<script>
+		const sampleLines = [];
+		for (let i = 1; i <= 120; i++) {
+			sampleLines.push(
+				`function computeSpringStep_${String(i).padStart(3, "0")}(position, velocity, dt) { return (position + velocity * dt) * Math.exp(-4 * dt); }`
+			);
+		}
+		const sampleCode = sampleLines.join("\n");
+
+		require.config({
+			paths: { vs: "../node_modules/monaco-editor/min/vs" },
+		});
+
+		require(["vs/editor/editor.main"], function () {
+			const editorLeft = monaco.editor.create(
+				document.getElementById("editor-left"),
+				{
+					value: sampleCode,
+					language: "javascript",
+					theme: "vs-dark",
+					fontSize: 14,
+					lineHeight: 22,
+					minimap: { enabled: false },
+					automaticLayout: true,
+				}
+			);
+
+			const editorRight = monaco.editor.create(
+				document.getElementById("editor-right"),
+				{
+					value: sampleCode,
+					language: "javascript",
+					theme: "vs-dark",
+					fontSize: 14,
+					lineHeight: 22,
+					minimap: { enabled: false },
+					automaticLayout: true,
+				}
+			);
+
+			editorLeft.focus();
+			editorLeft.setPosition({ lineNumber: 2, column: 10 });
+
+			const statusEl = document.getElementById("metric-status");
+			const rafEl = document.getElementById("metric-raf");
+			const dprEl = document.getElementById("metric-dpr");
+
+			function updateMetricsDisplay(statusText) {
+				const mgr = window.__springyCursor;
+				dprEl.textContent = `DPR: ${window.devicePixelRatio || 1} (${mgr ? mgr.canvas.width + "x" + mgr.canvas.height : ""})`;
+				rafEl.textContent = `rAF: ${window.__rafTotal}`;
+				if (statusText) statusEl.textContent = statusText;
+			}
+			updateMetricsDisplay("Ready");
+			window.addEventListener("resize", () => updateMetricsDisplay());
+
+			// 1. 单行打字
+			document
+				.getElementById("btn-typing")
+				.addEventListener("click", () => {
+					editorLeft.focus();
+					editorLeft.setPosition({ lineNumber: 3, column: 1 });
+					const text = "// typing cursor trail ";
+					let idx = 0;
+					const timer = setInterval(() => {
+						if (idx >= text.length) {
+							clearInterval(timer);
+							updateMetricsDisplay("Typing done");
+							return;
+						}
+						editorLeft.trigger("keyboard", "type", {
+							text: text[idx++],
+						});
+					}, 35);
+				});
+
+			// 2. 跨行跳转
+			let jumpToggle = false;
+			document
+				.getElementById("btn-jump")
+				.addEventListener("click", () => {
+					editorLeft.focus();
+					jumpToggle = !jumpToggle;
+					if (jumpToggle) {
+						editorLeft.setPosition({ lineNumber: 18, column: 55 });
+					} else {
+						editorLeft.setPosition({ lineNumber: 2, column: 5 });
+					}
+					setTimeout(
+						() => updateMetricsDisplay("Cross-line jump"),
+						250
+					);
+				});
+
+			// 3. 多光标
+			let multiToggle = false;
+			document
+				.getElementById("btn-multi")
+				.addEventListener("click", () => {
+					editorLeft.focus();
+					multiToggle = !multiToggle;
+					const col = multiToggle ? 50 : 12;
+					editorLeft.setSelections([
+						new monaco.Selection(4, col, 4, col),
+						new monaco.Selection(8, col, 8, col),
+						new monaco.Selection(12, col, 12, col),
+					]);
+					setTimeout(() => updateMetricsDisplay("Multi-cursor"), 250);
+				});
+
+			// 4. 分屏跳转
+			let splitToggle = false;
+			document
+				.getElementById("btn-split")
+				.addEventListener("click", () => {
+					splitToggle = !splitToggle;
+					if (splitToggle) {
+						editorRight.focus();
+						editorRight.setPosition({ lineNumber: 14, column: 35 });
+					} else {
+						editorLeft.focus();
+						editorLeft.setPosition({ lineNumber: 5, column: 10 });
+					}
+					setTimeout(() => updateMetricsDisplay("Split jump"), 250);
+				});
+
+			// 5. 滚动贴合
+			let scrollToggle = false;
+			document
+				.getElementById("btn-scroll")
+				.addEventListener("click", () => {
+					editorLeft.focus();
+					scrollToggle = !scrollToggle;
+					editorLeft.setScrollTop(scrollToggle ? 180 : 0);
+					setTimeout(() => updateMetricsDisplay("Scrolled"), 100);
+				});
+
+			// 6. 选区跳转
+			let selToggle = false;
+			document
+				.getElementById("btn-select")
+				.addEventListener("click", () => {
+					editorLeft.focus();
+					selToggle = !selToggle;
+					if (selToggle) {
+						editorLeft.setSelection(
+							new monaco.Selection(6, 5, 10, 45)
+						);
+					} else {
+						editorLeft.setSelection(
+							new monaco.Selection(6, 5, 6, 5)
+						);
+					}
+					setTimeout(() => updateMetricsDisplay("Selection"), 250);
+				});
+
+			// 7. 空闲 5 秒 rAF 测试
+			document
+				.getElementById("btn-idle")
+				.addEventListener("click", () => {
+					statusEl.textContent = "Measuring 5s idle...";
+					const startRaf = window.__rafTotal;
+					setTimeout(() => {
+						const delta = window.__rafTotal - startRaf;
+						updateMetricsDisplay(`Idle 5s rAF: ${delta}`);
+					}, 5000);
+				});
+
+			// 预设切换
+			document
+				.getElementById("sel-preset")
+				.addEventListener("change", (e) => {
+					window.__springyCursor.updateConfig({
+						preset: e.target.value,
+					});
+					updateMetricsDisplay(`Preset: ${e.target.value}`);
+				});
+
+			// 光标样式切换 (line / block / underline)
+			document
+				.getElementById("sel-style")
+				.addEventListener("change", (e) => {
+					const style = e.target.value;
+					editorLeft.updateOptions({ cursorStyle: style });
+					editorRight.updateOptions({ cursorStyle: style });
+					updateMetricsDisplay(`Style: ${style}`);
+				});
+
+			// 主题色模式切换 (color: "")
+			document
+				.getElementById("chk-theme-color")
+				.addEventListener("change", (e) => {
+					window.__springyCursor.updateConfig({
+						color: e.target.checked ? "" : "#FFC0CB",
+					});
+					updateMetricsDisplay(
+						e.target.checked ? "Color: Theme" : "Color: #FFC0CB"
+					);
+				});
+
+			// 打字拖尾开关
+			document
+				.getElementById("chk-typing")
+				.addEventListener("change", (e) => {
+					window.__springyCursor.updateConfig({
+						animateOnTyping: e.target.checked,
+					});
+					updateMetricsDisplay(
+						`Typing trail: ${e.target.checked ? "ON" : "OFF"}`
+					);
+				});
+
+			// 选区拖尾开关
+			document
+				.getElementById("chk-selection")
+				.addEventListener("change", (e) => {
+					window.__springyCursor.updateConfig({
+						animateOnSelection: e.target.checked,
+					});
+					updateMetricsDisplay(
+						`Selection trail: ${e.target.checked ? "ON" : "OFF"}`
+					);
+				});
+
+			window.testbench = {
+				editorLeft,
+				editorRight,
+				updateMetricsDisplay,
+			};
+		});
+	</script>
+</body>
+</html>

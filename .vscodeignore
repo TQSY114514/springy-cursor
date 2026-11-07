@@ -1,0 +1,7 @@
+.git/**
+.gitignore
+node_modules/**
+playground/**
+PLAN.md
+package-lock.json
+*.vsix

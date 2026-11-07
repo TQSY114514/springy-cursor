@@ -1,131 +1,145 @@
 // springy-cursor.js — 基于 LengineerC / 30d98f9b2 的 Neovide-Cursor (MIT)
 (() => {
 if (window.__springyCursor) return;
-window.__springyCursor = true;
-
-/**
- * ====================================================================
- * 核心实现原理 (Core Architecture & Physics)
- * ====================================================================
- * * 1. 分离式顶点追踪 (Mass-Spring Corner Tracking):
- * 本插件不将光标视为一个整体矩形, 而是将其拆解为四个独立的物理质点 (角点), 每个角点都绑定了
- * 一个独立的二阶阻尼弹簧振子系统, 这种设计允许光标在高速移动时发生剪切、拉伸和形变,
- * 从而还原 Neovide 那种充满弹性且有有机质感的视觉表现
- *
- * * 2. 动态优先级分级 (Rank-Based Dynamic Factor):
- * 当光标移动时, 系统会计算移动向量与每个角点向量的对齐度
- * - 领先角点 (Leading Corners): 对齐度高, 被赋予高 Rank, 响应最快
- * - 拖尾角点 (Trailing Corners): 对齐度低, 被赋予低 Rank, 产生明显的滞后
- * 通过这种分级控制, 光标在起始阶段会拉长, 在接近终点时会像橡皮筋一样收缩复位
- *
- * * 3. 尺寸锚定与解耦 (Dimensional Decoupling):
- * 在光标跨越不同宽度的字符 (如从单字节字符跳转到 Tab 或中文字符) 时, 若实时改变物理模型的
- * 目标尺寸会导致震荡, 插件在触发跳转 (Jump) 的瞬间锁定当前的 targetDim, 确保物理计算在
- * 局部坐标系内是稳定的, 直到下一次位置更新
- *
- * * 4. 虚拟 Canvas 渲染层 (Virtual Overlay Layer):
- * 由于 VSCode 原生光标无法实现非线性形变, 插件通过 CSS 禁用原生光标显示, 并创建一个
- * 覆盖全屏的 Canvas, Canvas 每一帧会实时抓取原生光标的 DOM 坐标作为引力中心, 驱动物理引擎,
- * 最终使用 polygon 绘制出经过物理形变后的光标图形
- */
-
-// ====================================================================
-// SECTION 1: 用户可自定义参数 (User Configurations)
-// ====================================================================
 
 // 由扩展在生成注入脚本时替换为 `const CONFIG = {...};`（来自 springyCursor.* 设置）
 /*__SPRINGY_CONFIG__*/
+const initialCfg =
+	typeof CONFIG !== "undefined" ? CONFIG : window.SPRINGY_CONFIG || {};
 
-const tailColor = CONFIG.color;
-const tailOpacity = CONFIG.opacity;
+const PRESETS = {
+	neovide: {
+		animationLength: 0.125,
+		shortAnimationLength: 0.05,
+		rankTrailFactors: [1.0, 0.9, 0.5, 0.3],
+		hardSnap: true,
+		leadingSnapFactor: 0.1,
+		leadingSnapThreshold: 0.5,
+		snapAnimationLength: 0.02,
+	},
+	subtle: {
+		animationLength: 0.08,
+		shortAnimationLength: 0.03,
+		rankTrailFactors: [0.85, 0.75, 0.5, 0.35],
+		hardSnap: true,
+		leadingSnapFactor: 0.15,
+		leadingSnapThreshold: 0.5,
+		snapAnimationLength: 0.015,
+	},
+	zed: {
+		animationLength: 0.1,
+		shortAnimationLength: 0.04,
+		rankTrailFactors: [0.7, 0.65, 0.55, 0.45],
+		hardSnap: false,
+		leadingSnapFactor: 0.35,
+		leadingSnapThreshold: 0.5,
+		snapAnimationLength: 0.03,
+	},
+};
 
-const useShadow = CONFIG.glow;
-const shadowColor = tailColor;
-const shadowBlurFactor = CONFIG.glowBlur;
-
-const animationLength = CONFIG.animationLength;
-const shortAnimationLength = CONFIG.shortAnimationLength;
 const shortMoveThreshold = 8;
-
-const rank0TrailFactor = 1.0;
-const rank1TrailFactor = 0.9;
-const rank2TrailFactor = 0.5;
-const rank3TrailFactor = 0.3;
-
-const useHardSnap = true;
-const leadingSnapFactor = 0.1;
-const leadingSnapThreshold = 0.5;
 const animationResetThreshold = 0.075;
 const maxTrailDistanceFactor = 100;
-const snapAnimationLength = 0.02;
-
-const cursorUpdatePollingRate = 100;
 const cursorDisappearDelay = 50;
 const cursorFadeOutDuration = 0.075;
-
 const canvasFadeTransitionCss = `opacity ${cursorFadeOutDuration}s ease-out`;
-const nativeCursorDisappearTransitionCss = `opacity 0s ease-out`;
-const nativeCursorRevealTransitionCss = `opacity 0.075s ease-in`;
+const ACTIVE_BODY_CLASS = "springy-cursor-active";
 
-// ====================================================================
-// SECTION 2: 全局状态追踪 (Global State Tracking)
-// ====================================================================
+function buildRuntimeSettings(raw) {
+	const presetName = raw.preset || "neovide";
+	const preset = PRESETS[presetName] || PRESETS.neovide;
+	const usePresetValues = presetName === "subtle" || presetName === "zed";
 
-/**
- * globalCursorState 对象
- * 记录全局范围内光标最后一次出现的位置, 用于光标在不同编辑器实例或分屏
- * 之间切换时, 能够提供一个合理的动画起始点, 防止动画从 [0,0] 坐标飞入
- */
+	return {
+		color: typeof raw.color === "string" ? raw.color.trim() : "#FFC0CB",
+		opacity: raw.opacity ?? 1,
+		glow: raw.glow ?? true,
+		glowBlur: raw.glowBlur ?? 0.5,
+		preset: presetName,
+		animationLength: usePresetValues
+			? preset.animationLength
+			: raw.animationLength ?? preset.animationLength,
+		shortAnimationLength: usePresetValues
+			? preset.shortAnimationLength
+			: raw.shortAnimationLength ?? preset.shortAnimationLength,
+		animateOnTyping:
+			raw.animateOnTyping ??
+			(raw.disableWhenTyping !== undefined
+				? !raw.disableWhenTyping
+				: true),
+		animateOnSelection:
+			raw.animateOnSelection ??
+			(raw.disableWhenSelecting !== undefined
+				? !raw.disableWhenSelecting
+				: true),
+		rankTrailFactors:
+			!usePresetValues &&
+			Array.isArray(raw.rankTrailFactors) &&
+			raw.rankTrailFactors.length === 4
+				? raw.rankTrailFactors
+				: preset.rankTrailFactors,
+		hardSnap: usePresetValues
+			? preset.hardSnap
+			: raw.hardSnap ?? preset.hardSnap,
+		leadingSnapFactor: usePresetValues
+			? preset.leadingSnapFactor
+			: raw.leadingSnapFactor ?? preset.leadingSnapFactor,
+		leadingSnapThreshold: usePresetValues
+			? preset.leadingSnapThreshold
+			: raw.leadingSnapThreshold ?? preset.leadingSnapThreshold,
+		snapAnimationLength: preset.snapAnimationLength,
+	};
+}
+
+let settings = buildRuntimeSettings(initialCfg);
+
 const globalCursorState = {
-	lastX: null, // 最后记录的中心 X 坐标
-	lastY: null, // 最后记录的中心 Y 坐标
-	lastWidth: null, // 新增: 最后记录的光标宽度
-	lastHeight: null, // 新增: 最后记录的光标高度
-	lastUpdated: 0, // 最后更新时间戳
+	lastX: null,
+	lastY: null,
+	lastWidth: null,
+	lastHeight: null,
+	lastUpdated: 0,
 };
 
-// ====================================================================
-// SECTION 3: 基础工具函数 (Utility Functions)
-// ====================================================================
-
-/**
- * resolveColor 函数: 将 CSS 格式的 Hex 颜色转为 RGBA 分量对象
- * 逻辑: 拆解字符串, 将 16 进制数字转换为计算所需的 0-255 整数数值
- */
-const resolveColor = (hex) => {
-	let h = hex.startsWith("#")
-		? hex.slice(1).toUpperCase()
-		: hex.toUpperCase();
+const resolveColor = (input) => {
+	const s = (input || "").trim();
+	const rgbMatch = s.match(
+		/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$/i
+	);
+	if (rgbMatch) {
+		return {
+			r: parseInt(rgbMatch[1], 10) & 255,
+			g: parseInt(rgbMatch[2], 10) & 255,
+			b: parseInt(rgbMatch[3], 10) & 255,
+			a:
+				rgbMatch[4] !== undefined
+					? Math.round(parseFloat(rgbMatch[4]) * 255) & 255
+					: 255,
+		};
+	}
+	let h = s.startsWith("#") ? s.slice(1).toUpperCase() : s.toUpperCase();
+	if (!/^[0-9A-F]{3}([0-9A-F]{3})?([0-9A-F]{2})?$/.test(h)) {
+		h = "FFC0CB";
+	}
 	if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
 	if (h.length === 6) h += "FF";
-	const r = parseInt(h.slice(0, 2), 16) >> 0,
-		g = parseInt(h.slice(2, 4), 16) >> 0,
-		b = parseInt(h.slice(4, 6), 16) >> 0,
-		a = parseInt(h.slice(6, 8), 16) >> 0;
-	return { r, g, b, a };
+	return {
+		r: parseInt(h.slice(0, 2), 16) >> 0,
+		g: parseInt(h.slice(2, 4), 16) >> 0,
+		b: parseInt(h.slice(4, 6), 16) >> 0,
+		a: parseInt(h.slice(6, 8), 16) >> 0,
+	};
 };
 
-/**
- * rgbaToCss 函数: 将 RGBA 分量对象还原为 CSS 标准字符串
- */
 const rgbaToCss = ({ r, g, b, a }) => `rgba(${r}, ${g}, ${b}, ${a / 255})`;
 
-/**
- * clamp 函数: 数值限幅器
- * 逻辑: 确保一个数值被强制锁定在指定的最小和最大范围之间
- */
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-/**
- * normalize 函数: 2D 向量归一化
- * 逻辑: 计算向量的长度并将其缩减为 1, 从而只提取出方向信息
- */
 const normalize = (v) => {
 	const l = Math.hypot(v.x, v.y);
 	return l ? { x: v.x / l, y: v.y / l } : { x: 0, y: 0 };
 };
 
-// 定义光标四个角点的局部坐标参考系 (以中心点为原点)
 const cursorRelativeCorners = [
 	{ x: -0.5, y: -0.5 }, // 左上 (Top-Left)
 	{ x: 0.5, y: -0.5 }, // 右上 (Top-Right)
@@ -133,25 +147,16 @@ const cursorRelativeCorners = [
 	{ x: -0.5, y: 0.5 }, // 左下 (Bottom-Left)
 ];
 
-// ====================================================================
-// SECTION 4: 阻尼弹簧物理模型 (Damped Spring Animation)
-// ====================================================================
-
 /**
- * DampedSpringAnimation 类: 模拟受阻尼限制的物体运动
- * 采用临界阻尼公式, 能够确保物体以最快速度且不产生多次震荡的方式回归目标位置
+ * Spring: 二阶临界阻尼弹簧振子
  */
-class DampedSpringAnimation {
-	constructor(l) {
-		this.position = 0; // 偏移量 (当前距离目标的距离, 为 0 代表已重合)
-		this.velocity = 0; // 当前运动速度
-		this.animationLength = l; // 时间常数 (数值越小, 弹簧越硬, 移动越快)
+class Spring {
+	constructor(length) {
+		this.position = 0;
+		this.velocity = 0;
+		this.animationLength = length;
 	}
 
-	/**
-	 * update 方法: 根据时间增量 dt 推进物理模拟
-	 * 逻辑: 根据经典物理公式计算下一时刻的位置和速度
-	 */
 	update(dt) {
 		if (this.animationLength <= dt || Math.abs(this.position) < 0.001) {
 			this.reset();
@@ -166,36 +171,25 @@ class DampedSpringAnimation {
 		return Math.abs(this.position) >= 0.01;
 	}
 
-	/**
-	 * reset 方法: 清除动能与位移, 瞬间静止
-	 */
 	reset() {
 		this.position = 0;
 		this.velocity = 0;
 	}
 }
 
-// ====================================================================
-// SECTION 5: 单个角点控制 (Corner Control)
-// ====================================================================
-
 /**
- * Corner 类: 管理光标的每一个独立角点
- * 负责处理该角点的局部坐标到全局坐标的投影、弹簧系统的调度以及对齐度计算
+ * Corner: 光标单个角点物理质点控制
  */
 class Corner {
 	constructor(rp) {
-		this.rp = rp; // 角点相对于光标中心的相对位置系数
-		this.cp = { x: 0, y: 0 }; // 角点当前在屏幕上的实际位置
-		this.pd = { x: -1e5, y: -1e5 }; // 角点上一帧锁定的目标位置
-		this.ax = new DampedSpringAnimation(animationLength); // 左右(X轴)弹簧
-		this.ay = new DampedSpringAnimation(animationLength); // 上下(Y轴)弹簧
-		this.targetDim = { width: 8, height: 18 }; // 该角点认定的光标大小
+		this.rp = rp;
+		this.cp = { x: 0, y: 0 };
+		this.pd = { x: -1e5, y: -1e5 };
+		this.ax = new Spring(settings.animationLength);
+		this.ay = new Spring(settings.animationLength);
+		this.targetDim = { width: 8, height: 18 };
 	}
 
-	/**
-	 * getDest 方法: 计算该角点理想状态下(静止时)应该到达的目标坐标
-	 */
 	getDest(c, dim) {
 		return {
 			x: c.x + this.rp.x * dim.width,
@@ -203,10 +197,6 @@ class Corner {
 		};
 	}
 
-	/**
-	 * calculateDirectionAlignment 方法: 计算角点相对位移的方向对齐度
-	 * 逻辑: 通过点积运算判断该角点是在移动方向的前端还是后端
-	 */
 	calculateDirectionAlignment(dim, destCenter) {
 		const cornerDest = this.getDest(destCenter, dim);
 		const travelDir = normalize({
@@ -217,79 +207,67 @@ class Corner {
 		return travelDir.x * cornerDir.x + travelDir.y * cornerDir.y;
 	}
 
-	/**
-	 * jump 方法: 核心调度逻辑
-	 * 逻辑: 当光标大范围位移时, 重新分配每个角点的权重, 决定谁该领先, 谁该拖后
-	 */
-	jump(c, dim, rank) {
+	jump(c, dim, rank, isShortMove) {
 		this.targetDim = { ...dim };
 		const t = this.getDest(c, dim);
 		const jv = {
 			x: (t.x - this.pd.x) / dim.width,
 			y: (t.y - this.pd.y) / dim.height,
 		};
-		// 判断是否为短距离移动 (如正常打字)
-		const isShortMove =
-			Math.abs(jv.x) <= shortMoveThreshold && Math.abs(jv.y) <= 0.001;
-		const baseTime = isShortMove ? shortAnimationLength : animationLength;
+		const baseTime = isShortMove
+			? settings.shortAnimationLength
+			: settings.animationLength;
 		const leadingAlignment =
 			normalize(jv).x * normalize(this.rp).x +
 			normalize(jv).y * normalize(this.rp).y;
 
-		let finalFactor;
-		// 领先判定: 对齐度极高的前端角点执行快速响应 (Hard Snap)
-		if (useHardSnap && leadingAlignment > leadingSnapThreshold) {
-			finalFactor = leadingSnapFactor;
-		} else {
-			const factors = [
-				rank0TrailFactor,
-				rank1TrailFactor,
-				rank2TrailFactor,
-				rank3TrailFactor,
-			];
-			finalFactor = factors[rank] || 1.0;
-		}
+		const isLeadingSnap =
+			settings.hardSnap &&
+			leadingAlignment > settings.leadingSnapThreshold;
+		const finalFactor = isLeadingSnap
+			? settings.leadingSnapFactor
+			: settings.rankTrailFactors[rank] ?? 1.0;
 
-		let len =
-			leadingAlignment > leadingSnapThreshold && useHardSnap
-				? snapAnimationLength
-				: baseTime * clamp(finalFactor, 0, 1);
+		const len = isLeadingSnap
+			? settings.snapAnimationLength
+			: baseTime * clamp(finalFactor, 0, 2);
 
 		this.ax.animationLength = len;
 		this.ay.animationLength = len;
 
-		// 若动画时长较大, 则清空旧动能, 避免之前的运动惯性干扰本次跳转
 		if (len > animationResetThreshold) {
 			this.ax.reset();
 			this.ay.reset();
 		}
 	}
 
-	/**
-	 * update 方法: 每一帧执行的物理位置迭代
-	 */
+	snap(c, dim) {
+		this.targetDim = { ...dim };
+		const dest = this.getDest(c, dim);
+		this.cp = { ...dest };
+		this.pd = { ...dest };
+		this.ax.reset();
+		this.ay.reset();
+	}
+
 	update(dim, c, dt, imm) {
 		const dest = this.getDest(c, dim);
-		// 如果目标点移动了, 将新的差值注入弹簧系统进行缓慢消化
 		if (dest.x !== this.pd.x || dest.y !== this.pd.y) {
 			this.ax.position = dest.x - this.cp.x;
 			this.ay.position = dest.y - this.cp.y;
 			this.pd = { ...dest };
 		}
-		// 如果在滚动状态, 强行同步位置以防止光标在页面滚动时掉队
 		if (imm) {
-			this.cp = dest;
+			this.cp = { ...dest };
 			this.ax.reset();
 			this.ay.reset();
 			return false;
 		}
 		this.ax.update(dt);
 		this.ay.update(dt);
-		// 限制拉伸距离, 防止物理计算异常导致光标飞出屏幕
 		const maxD = Math.max(dim.width, dim.height) * maxTrailDistanceFactor;
 		this.ax.position = clamp(this.ax.position, -maxD, maxD);
 		this.ay.position = clamp(this.ay.position, -maxD, maxD);
-		// 最终绘制点 = 目标点 - 弹簧尚未消化的剩余距离
 		this.cp.x = dest.x - this.ax.position;
 		this.cp.y = dest.y - this.ay.position;
 		return (
@@ -298,362 +276,794 @@ class Corner {
 	}
 }
 
-// ====================================================================
-// SECTION 6: 单个光标实例创建器 (Cursor Instance Creator)
-// ====================================================================
-
 /**
- * createNeovideCursor 工厂函数: 负责生成并管理一个完整的光标渲染逻辑
+ * Cursor: 单个光标的四角物理实例与绘制
  */
-const createNeovideCursor = ({ canvas }) => {
-	// 预计算颜色值, 减少绘图时的重复计算开销
-	const colorObj = resolveColor(tailColor),
-		finalColorCss = rgbaToCss({
-			...colorObj,
-			a: (colorObj.a * tailOpacity) >> 0,
-		}),
-		shadowColorCss = useShadow
-			? shadowColor === tailColor
-				? finalColorCss
-				: rgbaToCss(resolveColor(shadowColor))
-			: null;
-
-	const context = canvas.getContext("2d");
-	let cursorDimensions = { width: 8, height: 18 },
-		centerDest = { x: 0, y: 0 },
-		lastT = performance.now(),
-		initialized = false,
-		jumped = false;
-
-	// 为该光标初始化四个独立物理角点
-	const corners = cursorRelativeCorners.map((p) => new Corner(p));
-
-	return {
-		/**
-		 * move 方法: 外部驱动接口, 告诉插件光标的目标坐标
-		 */
-		move: (x, y, fromSource = null) => {
-			if ((x <= 0 && y <= 0) || isNaN(x) || isNaN(y)) return;
-			const newCenter = {
-				x: x + cursorDimensions.width / 2,
-				y: y + cursorDimensions.height / 2,
-			};
-			// 修复: 将条件从 !initialized 改为 !initialized || fromSource
-			// 原因: 在同窗口分屏跳转时, initialized 已为 true, 但仍需要重新初始化角点位置以触发过渡动画
-			if (!initialized || fromSource) {
-				const src =
-					fromSource ||
-					(globalCursorState.lastX
-						? {
-								x: globalCursorState.lastX,
-								y: globalCursorState.lastY,
-						  }
-						: null);
-				if (src) {
-					const oldDim = {
-						width:
-							globalCursorState.lastWidth ||
-							cursorDimensions.width,
-						height:
-							globalCursorState.lastHeight ||
-							cursorDimensions.height,
-					};
-					corners.forEach((c) => {
-						c.targetDim = { ...oldDim };
-						const d = c.getDest({ x: src.x, y: src.y }, oldDim);
-						c.cp = { ...d };
-						c.pd = { ...d };
-					});
-				} else {
-					// 无源坐标时, 直接在目标位置初始化
-					corners.forEach((c) => {
-						c.targetDim = { ...cursorDimensions };
-						const d = c.getDest(newCenter, cursorDimensions);
-						c.cp = { ...d };
-						c.pd = { ...d };
-					});
-				}
-				initialized = true;
-			}
-			centerDest = newCenter;
-			jumped = true; // 触发 Rank 重新分配
-			globalCursorState.lastX = newCenter.x;
-			globalCursorState.lastY = newCenter.y;
-			globalCursorState.lastWidth = cursorDimensions.width;
-			globalCursorState.lastHeight = cursorDimensions.height;
-			globalCursorState.lastUpdated = Date.now();
-		},
-
-		updateSize: (w, h) => {
-			if (w > 0) {
-				cursorDimensions.width = w;
-				cursorDimensions.height = h;
-			}
-		},
-
-		/**
-		 * updateLoop 方法: 每一帧执行的 Canvas 绘图循环
-		 */
-		updateLoop: (isS, draw) => {
-			if (!initialized) return false;
-			const now = performance.now(),
-				dt = Math.min((now - lastT) / 1000, 1 / 30);
-			lastT = now;
-
-			if (jumped) {
-				// 根据对齐度对四个角点进行排序, 从而分配不同的滞后系数
-				const ranks = corners
-					.map((c, i) => ({
-						i,
-						v: c.calculateDirectionAlignment(
-							cursorDimensions,
-							centerDest
-						),
-					}))
-					.sort((a, b) => a.v - b.v)
-					.map((it, r) => ({ i: it.i, r }))
-					.reduce((acc, cur) => {
-						acc[cur.i] = cur.r;
-						return acc;
-					}, []);
-
-				corners.forEach((c, i) =>
-					c.jump(centerDest, cursorDimensions, ranks[i])
-				);
-				jumped = false;
-			}
-
-			let anim = false;
-			corners.forEach((c) => {
-				if (c.update(cursorDimensions, centerDest, dt, isS))
-					anim = true;
-			});
-
-			if (draw) {
-				// 执行 2D 绘图: 按照角点物理坐标描绘多边形并填充颜色
-				context.beginPath();
-				context.moveTo(corners[0].cp.x, corners[0].cp.y);
-				for (let i = 1; i < 4; i++)
-					context.lineTo(corners[i].cp.x, corners[i].cp.y);
-				context.closePath();
-				context.fillStyle = finalColorCss;
-				if (useShadow) {
-					context.shadowColor = shadowColorCss;
-					context.shadowBlur =
-						shadowBlurFactor *
-						Math.max(
-							cursorDimensions.width,
-							cursorDimensions.height
-						);
-				}
-				context.fill();
-				context.shadowBlur = 0;
-				context.shadowColor = "transparent";
-			}
-			return anim;
-		},
-	};
-};
-
-// ====================================================================
-// SECTION 7: 全局光标管理器 (Global Cursor Manager)
-// ====================================================================
-
-/**
- * GlobalCursorManager 类: 系统的控制塔
- * 负责扫描 DOM 节点、同步多光标实例、控制原生光标的显隐以及渲染 Canvas
- */
-class GlobalCursorManager {
+class Cursor {
 	constructor() {
-		this.cursors = new Map(); // 存储活跃光标实例及其对应的 DOM 元素
-		this.canvas = document.createElement("canvas");
-		this.ctx = this.canvas.getContext("2d");
-		this.isScrolling = false; // 滚动状态锁
-		this.init();
+		this.dimensions = { width: 8, height: 18 };
+		this.centerDest = { x: 0, y: 0 };
+		this.initialized = false;
+		this.jumped = false;
+		this.isShortMove = false;
+		this.corners = cursorRelativeCorners.map((p) => new Corner(p));
 	}
 
-	/**
-	 * init 方法: 启动环境初始化
-	 */
-	init() {
-		// 注入全局样式: 禁用原生的光标平滑过渡, 否则物理引擎无法接管
-		const style = document.createElement("style");
-		style.textContent = `
-            .monaco-editor .cursor {
-                transition: none !important;
-            }
-            .cursor-trail {
-                opacity: 0 !important;
-            }
-        `;
-		document.head.appendChild(style);
-
-		// 设置全屏透明画板
-		this.canvas.style.cssText = `
-            pointer-events: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            z-index: 9999;
-            opacity: 0;
-            transition: none;
-        `;
-		document.body.appendChild(this.canvas);
-
-		window.addEventListener("resize", () => {
-			this.canvas.width = window.innerWidth;
-			this.canvas.height = window.innerHeight;
-		});
-		this.canvas.width = window.innerWidth;
-		this.canvas.height = window.innerHeight;
-
-		// 全局滚动检测: 页面滚动时, 光标必须停止物理形变并紧贴行首
-		document.addEventListener(
-			"scroll",
-			() => {
-				this.isScrolling = true;
-				clearTimeout(this.sT);
-				this.sT = setTimeout(() => (this.isScrolling = false), 100);
-			},
-			{ capture: true, passive: true }
-		);
-
-		this.loop();
-		setInterval(() => this.scan(), cursorUpdatePollingRate);
-	}
-
-	/**
-	 * scan 方法: 探测并匹配 DOM 元素与物理实例
-	 */
-	scan() {
-		const ids = new Set();
-		const els = document.querySelectorAll(".monaco-editor .cursor");
-		els.forEach((el) => {
-			let id =
-				el.dataset.cursorId ||
-				"c" + Math.random().toString(36).slice(2, 7);
-			el.dataset.cursorId = id;
-			ids.add(id);
-
-			// 如果发现新的光标 DOM, 立即创建对应的物理引擎对象
-			if (!this.cursors.has(id)) {
-				const r = el.getBoundingClientRect();
-				const inst = createNeovideCursor({ canvas: this.canvas });
-				if (r.left > 0 || r.top > 0) {
-					inst.updateSize(r.width, r.height);
-					inst.move(
-						r.left,
-						r.top,
-						globalCursorState.lastX
-							? {
-									x: globalCursorState.lastX,
-									y: globalCursorState.lastY,
-							  }
-							: null
-					);
-					this.cursors.set(id, {
-						instance: inst,
-						target: el,
-						lastX: r.left,
-						lastY: r.top,
-						isActive: false,
-					});
-				}
-			}
-		});
-		// 回收已经消失的 DOM 对应的实例
-		for (const id of this.cursors.keys()) {
-			if (!ids.has(id)) this.cursors.delete(id);
+	updateSize(w, h) {
+		if (w > 0 && h > 0) {
+			this.dimensions.width = w;
+			this.dimensions.height = h;
 		}
 	}
 
-	/**
-	 * loop 方法: 顶层渲染引擎, 控制每一帧的最终输出
-	 */
-	loop() {
-		this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-		let isAnyAnimating = false;
+	snap(x, y) {
+		if (isNaN(x) || isNaN(y)) return;
+		const center = {
+			x: x + this.dimensions.width / 2,
+			y: y + this.dimensions.height / 2,
+		};
+		this.centerDest = center;
+		this.corners.forEach((c) => c.snap(center, this.dimensions));
+		this.initialized = true;
+		this.jumped = false;
+	}
 
-		for (const [id, data] of this.cursors) {
-			if (!data.target || !data.target.isConnected) {
-				this.cursors.delete(id);
-				continue;
-			}
-			const r = data.target.getBoundingClientRect();
-			const style = getComputedStyle(data.target);
-			// 判定原生光标当前是否在界面上逻辑可见 (排除因分屏隐藏的光标)
-			const isNowActive =
-				style.visibility !== "hidden" &&
-				style.display !== "none" &&
-				!style.transform.includes("-10000px");
-			const hasMoved = r.left !== data.lastX || r.top !== data.lastY;
-
-			// 状态管理: 处理光标首次激活时的跳转引导
-			if (isNowActive && !data.isActive) {
-				data.isJumping = true;
-				data.jumpSource = globalCursorState.lastX
-					? { x: globalCursorState.lastX, y: globalCursorState.lastY }
-					: null;
-			}
-
-			if (data.isJumping && hasMoved) {
-				data.instance.updateSize(r.width, r.height);
-				data.instance.move(r.left, r.top, data.jumpSource);
-				data.isJumping = false;
-				data.lastX = r.left;
-				data.lastY = r.top;
-			} else if (isNowActive && hasMoved) {
-				data.instance.updateSize(r.width, r.height);
-				data.instance.move(r.left, r.top);
-				data.lastX = r.left;
-				data.lastY = r.top;
-			}
-
-			data.isActive = isNowActive;
-			if (isNowActive) {
-				const anim = data.instance.updateLoop(
-					this.isScrolling,
-					r.left >= 0 && r.top >= 0 && r.left <= window.innerWidth
+	move(x, y, fromSource = null) {
+		if (isNaN(x) || isNaN(y)) return;
+		const newCenter = {
+			x: x + this.dimensions.width / 2,
+			y: y + this.dimensions.height / 2,
+		};
+		if (!this.initialized || fromSource) {
+			const src =
+				fromSource ||
+				(globalCursorState.lastX !== null
+					? {
+							x: globalCursorState.lastX,
+							y: globalCursorState.lastY,
+							width: globalCursorState.lastWidth,
+							height: globalCursorState.lastHeight,
+					  }
+					: null);
+			if (src && src.x !== null && src.y !== null) {
+				const oldDim = {
+					width:
+						src.width ||
+						globalCursorState.lastWidth ||
+						this.dimensions.width,
+					height:
+						src.height ||
+						globalCursorState.lastHeight ||
+						this.dimensions.height,
+				};
+				this.corners.forEach((c) =>
+					c.snap({ x: src.x, y: src.y }, oldDim)
 				);
-				if (anim) isAnyAnimating = true;
-				data.isAnimating = anim;
 			} else {
-				data.isAnimating = false;
+				this.corners.forEach((c) => c.snap(newCenter, this.dimensions));
 			}
-		}
-
-		// 显隐逻辑策略:
-		// 动画中: 隐藏原生光标, 渲染物理 Canvas
-		// 静止后: 恢复原生光标 (确保清晰度), 渐隐物理 Canvas
-		if (isAnyAnimating) {
-			this.canvas.style.transition = "none";
-			this.canvas.style.opacity = "1";
-			this.cursors.forEach((d) => {
-				if (d.isActive && d.target) {
-					d.target.style.transition =
-						nativeCursorDisappearTransitionCss;
-					d.target.style.opacity = "0";
-				}
-			});
+			this.initialized = true;
+			this.isShortMove = false;
 		} else {
-			if (this.canvas.style.opacity === "1") {
-				setTimeout(() => {
-					this.canvas.style.transition = canvasFadeTransitionCss;
-					this.canvas.style.opacity = "0";
-				}, cursorDisappearDelay);
-			}
-			this.cursors.forEach((d) => {
-				if (d.isActive && d.target) {
-					d.target.style.transition = nativeCursorRevealTransitionCss;
-					d.target.style.opacity = "1";
-				}
-			});
+			const jvx =
+				Math.abs(newCenter.x - this.centerDest.x) /
+				Math.max(1, this.dimensions.width);
+			const jvy =
+				Math.abs(newCenter.y - this.centerDest.y) /
+				Math.max(1, this.dimensions.height);
+			this.isShortMove = jvx <= shortMoveThreshold && jvy <= 0.05;
 		}
 
-		requestAnimationFrame(this.loop.bind(this));
+		globalCursorState.lastX = newCenter.x;
+		globalCursorState.lastY = newCenter.y;
+		globalCursorState.lastWidth = this.dimensions.width;
+		globalCursorState.lastHeight = this.dimensions.height;
+		globalCursorState.lastUpdated = Date.now();
+
+		if (!fromSource && this.isShortMove && !settings.animateOnTyping) {
+			this.snap(x, y);
+			return;
+		}
+
+		this.centerDest = newCenter;
+		this.jumped = true;
+	}
+
+	step(dt, immediate) {
+		if (!this.initialized) return false;
+		if (immediate) {
+			this.jumped = false;
+			this.corners.forEach((c) =>
+				c.update(this.dimensions, this.centerDest, dt, true)
+			);
+			return false;
+		}
+		if (this.jumped) {
+			const ranks = this.corners
+				.map((c, i) => ({
+					i,
+					v: c.calculateDirectionAlignment(
+						this.dimensions,
+						this.centerDest
+					),
+				}))
+				.sort((a, b) => a.v - b.v)
+				.reduce((acc, cur, r) => {
+					acc[cur.i] = r;
+					return acc;
+				}, []);
+
+			this.corners.forEach((c, i) =>
+				c.jump(
+					this.centerDest,
+					this.dimensions,
+					ranks[i],
+					this.isShortMove
+				)
+			);
+			this.jumped = false;
+		}
+
+		let animating = false;
+		this.corners.forEach((c) => {
+			if (c.update(this.dimensions, this.centerDest, dt, false)) {
+				animating = true;
+			}
+		});
+		return animating;
+	}
+
+	draw(ctx, clipRect, colorCss, shadowColorCss) {
+		if (!this.initialized) return;
+		ctx.save();
+		if (clipRect) {
+			ctx.beginPath();
+			ctx.rect(
+				clipRect.left,
+				clipRect.top,
+				clipRect.width,
+				clipRect.height
+			);
+			ctx.clip();
+		}
+		ctx.beginPath();
+		ctx.moveTo(this.corners[0].cp.x, this.corners[0].cp.y);
+		for (let i = 1; i < 4; i++) {
+			ctx.lineTo(this.corners[i].cp.x, this.corners[i].cp.y);
+		}
+		ctx.closePath();
+		ctx.fillStyle = colorCss;
+		if (settings.glow && shadowColorCss) {
+			ctx.shadowColor = shadowColorCss;
+			ctx.shadowBlur =
+				settings.glowBlur *
+				Math.max(this.dimensions.width, this.dimensions.height);
+		}
+		ctx.fill();
+		ctx.restore();
 	}
 }
 
-// 启动全局光标管理器
-new GlobalCursorManager();
+/**
+ * Manager: 观察 DOM、集中读写布局、管理 rAF 生命周期与 Canvas 绘制
+ */
+class Manager {
+	constructor() {
+		this.cursors = new Map(); // cursorEl -> cursorRecord
+		this.observedLayers = new WeakSet();
+		this.observedLinesContents = new WeakSet();
+		this.activeEditor = null;
+		this.rafId = null;
+		this.fadeTimer = null;
+		this.lastFrameTime = 0;
+		this.dpr = 1;
+		this.viewportWidth = 0;
+		this.viewportHeight = 0;
+		this.dprMediaQuery = null;
+		this.onDprChange = null;
+		this.finalColorCss = "rgba(255, 192, 203, 1)";
+		this.shadowColorCss = "rgba(255, 192, 203, 1)";
+
+		this.canvas = document.createElement("canvas");
+		this.ctx = this.canvas.getContext("2d");
+		this.boundLoop = this.loop.bind(this);
+
+		this.refreshColors(null);
+		this.init();
+	}
+
+	updateConfig(partial) {
+		const merged = { ...initialCfg, ...(window.SPRINGY_CONFIG || {}), ...partial };
+		window.SPRINGY_CONFIG = merged;
+		settings = buildRuntimeSettings(merged);
+		this.refreshColors(this.activeEditor);
+	}
+
+	get settings() {
+		return settings;
+	}
+
+	refreshColors(editorEl) {
+		let rawColor = settings.color;
+		if (!rawColor) {
+			const target = editorEl || document.documentElement;
+			rawColor = getComputedStyle(target)
+				.getPropertyValue("--vscode-editorCursor-foreground")
+				.trim();
+			if (!rawColor && target !== document.documentElement) {
+				rawColor = getComputedStyle(document.documentElement)
+					.getPropertyValue("--vscode-editorCursor-foreground")
+					.trim();
+			}
+		}
+		const colorObj = resolveColor(rawColor || "#FFC0CB");
+		this.finalColorCss = rgbaToCss({
+			...colorObj,
+			a: (colorObj.a * settings.opacity) >> 0,
+		});
+		this.shadowColorCss = settings.glow ? this.finalColorCss : null;
+	}
+
+	init() {
+		const style = document.createElement("style");
+		style.textContent = `
+			.monaco-editor .cursor {
+				transition: none !important;
+			}
+			.cursor-trail {
+				opacity: 0 !important;
+			}
+			body.${ACTIVE_BODY_CLASS} .monaco-editor .cursor {
+				opacity: 0 !important;
+			}
+		`;
+		document.head.appendChild(style);
+
+		this.canvas.style.cssText = `
+			pointer-events: none;
+			position: fixed;
+			top: 0;
+			left: 0;
+			z-index: 9999;
+			opacity: 0;
+			transition: none;
+		`;
+		document.body.appendChild(this.canvas);
+
+		this.updateCanvasSize();
+		this.observeDpr();
+		window.addEventListener("resize", () => this.updateCanvasSize());
+
+		this.layerObserver = new MutationObserver((mutations) =>
+			this.onLayerMutations(mutations)
+		);
+		this.treeObserver = new MutationObserver((mutations) =>
+			this.onTreeMutations(mutations)
+		);
+
+		this.treeObserver.observe(document.body, {
+			childList: true,
+			subtree: true,
+		});
+
+		document.addEventListener(
+			"focusin",
+			(e) => {
+				const editor =
+					e.target && typeof e.target.closest === "function"
+						? e.target.closest(".monaco-editor")
+						: null;
+				if (editor && editor !== this.activeEditor) {
+					this.onEditorFocusSwitch(editor);
+				}
+			},
+			true
+		);
+
+		this.scanEditors(document.body);
+	}
+
+	updateCanvasSize() {
+		const dpr = window.devicePixelRatio || 1;
+		const width = window.innerWidth;
+		const height = window.innerHeight;
+		this.dpr = dpr;
+		this.viewportWidth = width;
+		this.viewportHeight = height;
+		this.canvas.width = Math.round(width * dpr);
+		this.canvas.height = Math.round(height * dpr);
+		this.canvas.style.width = `${width}px`;
+		this.canvas.style.height = `${height}px`;
+		this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+	}
+
+	observeDpr() {
+		if (this.dprMediaQuery && this.onDprChange) {
+			this.dprMediaQuery.removeEventListener("change", this.onDprChange);
+		}
+		const dpr = window.devicePixelRatio || 1;
+		this.dprMediaQuery = window.matchMedia(`(resolution: ${dpr}dppx)`);
+		this.onDprChange = () => {
+			this.updateCanvasSize();
+			this.observeDpr();
+		};
+		this.dprMediaQuery.addEventListener("change", this.onDprChange);
+	}
+
+	getInlineSig(el, linesContent) {
+		const s = el.style;
+		const ls = linesContent ? linesContent.style : null;
+		return `${s.left},${s.top},${s.width},${s.height},${s.display},${s.transform},${ls ? ls.left : ""},${ls ? ls.top : ""}`;
+	}
+
+	scanEditors(root) {
+		if (!root || typeof root.querySelectorAll !== "function") return;
+		const layers = root.classList?.contains("cursors-layer")
+			? [root]
+			: Array.from(root.querySelectorAll(".cursors-layer"));
+		let added = false;
+		for (const layer of layers) {
+			if (!this.observedLayers.has(layer)) {
+				this.observedLayers.add(layer);
+				this.layerObserver.observe(layer, {
+					childList: true,
+					subtree: true,
+					attributes: true,
+					attributeFilter: ["style"],
+				});
+			}
+			const linesContent = layer.closest(".lines-content");
+			if (linesContent && !this.observedLinesContents.has(linesContent)) {
+				this.observedLinesContents.add(linesContent);
+				this.layerObserver.observe(linesContent, {
+					attributes: true,
+					attributeFilter: ["style"],
+				});
+			}
+			const cursorEls = layer.querySelectorAll(".cursor");
+			for (const el of cursorEls) {
+				if (this.registerCursorElement(el)) {
+					added = true;
+				}
+			}
+		}
+		if (added) {
+			this.scheduleFrame();
+		}
+	}
+
+	registerCursorElement(el) {
+		if (this.cursors.has(el)) return false;
+		const editor = el.closest(".monaco-editor");
+		const layer = el.closest(".cursors-layer");
+		const overflowGuard = el.closest(".overflow-guard");
+		const linesContent = el.closest(".lines-content");
+		const instance = new Cursor();
+		this.cursors.set(el, {
+			el,
+			editor,
+			layer,
+			overflowGuard,
+			linesContent,
+			instance,
+			lastX: null,
+			lastY: null,
+			lastWidth: 0,
+			lastHeight: 0,
+			lastLinesLeft: linesContent
+				? parseFloat(linesContent.style.left) || 0
+				: 0,
+			lastLinesTop: linesContent
+				? parseFloat(linesContent.style.top) || 0
+				: 0,
+			lastSig: "",
+			isAnimating: false,
+			pendingEditorJump: false,
+			pendingWaitDone: false,
+			jumpSource: null,
+		});
+		return true;
+	}
+
+	setActiveEditor(editor) {
+		if (this.activeEditor && this.activeEditor !== editor) {
+			for (const d of this.cursors.values()) {
+				if (d.editor !== editor) {
+					d.isAnimating = false;
+					if (d.lastX !== null && d.lastY !== null) {
+						d.instance.snap(d.lastX, d.lastY);
+					}
+				}
+			}
+		}
+		this.activeEditor = editor;
+	}
+
+	onEditorFocusSwitch(newEditor) {
+		if (globalCursorState.lastX === null) {
+			this.setActiveEditor(newEditor);
+			return;
+		}
+		let switched = false;
+		for (const data of this.cursors.values()) {
+			if (data.editor === newEditor) {
+				data.pendingEditorJump = true;
+				data.jumpSource = {
+					x: globalCursorState.lastX,
+					y: globalCursorState.lastY,
+					width: globalCursorState.lastWidth,
+					height: globalCursorState.lastHeight,
+				};
+				switched = true;
+			}
+		}
+		this.setActiveEditor(newEditor);
+		if (switched) {
+			this.scheduleFrame();
+		}
+	}
+
+	onTreeMutations(mutations) {
+		let shouldSchedule = false;
+		let hasRemovals = false;
+		for (const m of mutations) {
+			const target = m.target;
+			if (
+				target.nodeType === 1 &&
+				(target.classList.contains("view-lines") ||
+					target.closest?.(".view-lines") ||
+					target.closest?.(".minimap"))
+			) {
+				continue;
+			}
+			for (const node of m.addedNodes) {
+				if (node.nodeType !== 1) continue;
+				if (node.classList.contains("cursor")) {
+					if (this.registerCursorElement(node)) {
+						shouldSchedule = true;
+					}
+				} else if (
+					node.classList.contains("cursors-layer") ||
+					node.classList.contains("monaco-editor") ||
+					node.querySelector?.(".cursors-layer")
+				) {
+					this.scanEditors(node);
+				}
+			}
+			for (const node of m.removedNodes) {
+				if (node.nodeType === 1) {
+					hasRemovals = true;
+					break;
+				}
+			}
+		}
+		if (hasRemovals) {
+			for (const [el] of this.cursors) {
+				if (!el.isConnected) {
+					this.cursors.delete(el);
+					shouldSchedule = true;
+				}
+			}
+		}
+		if (shouldSchedule) {
+			this.scheduleFrame();
+		}
+	}
+
+	onLayerMutations(mutations) {
+		let shouldSchedule = false;
+		for (const m of mutations) {
+			if (m.type === "childList") {
+				for (const node of m.addedNodes) {
+					if (
+						node.nodeType === 1 &&
+						node.classList.contains("cursor")
+					) {
+						this.registerCursorElement(node);
+						shouldSchedule = true;
+					}
+				}
+				for (const node of m.removedNodes) {
+					if (node.nodeType === 1 && this.cursors.has(node)) {
+						this.cursors.delete(node);
+						shouldSchedule = true;
+					}
+				}
+			} else if (m.type === "attributes") {
+				const target = m.target;
+				if (target.classList.contains("cursor")) {
+					let data = this.cursors.get(target);
+					if (!data) {
+						this.registerCursorElement(target);
+						data = this.cursors.get(target);
+					}
+					const sig = this.getInlineSig(target, data.linesContent);
+					if (sig !== data.lastSig) {
+						shouldSchedule = true;
+					}
+				} else if (target.classList.contains("lines-content")) {
+					const linesLeft = parseFloat(target.style.left) || 0;
+					const linesTop = parseFloat(target.style.top) || 0;
+					for (const data of this.cursors.values()) {
+						if (
+							data.linesContent === target &&
+							(linesLeft !== data.lastLinesLeft ||
+								linesTop !== data.lastLinesTop)
+						) {
+							shouldSchedule = true;
+						}
+					}
+				}
+			}
+		}
+		if (shouldSchedule) {
+			this.scheduleFrame();
+		}
+	}
+
+	scheduleFrame() {
+		if (this.rafId !== null) return;
+		this.lastFrameTime = 0;
+		this.rafId = requestAnimationFrame(this.boundLoop);
+	}
+
+	showCanvasAndHideNative() {
+		if (this.fadeTimer !== null) {
+			clearTimeout(this.fadeTimer);
+			this.fadeTimer = null;
+		}
+		this.canvas.style.transition = "none";
+		this.canvas.style.opacity = "1";
+		document.body.classList.add(ACTIVE_BODY_CLASS);
+	}
+
+	revealNativeAndFadeCanvas() {
+		document.body.classList.remove(ACTIVE_BODY_CLASS);
+		if (this.canvas.style.opacity === "1" && this.fadeTimer === null) {
+			this.fadeTimer = setTimeout(() => {
+				this.fadeTimer = null;
+				this.canvas.style.transition = canvasFadeTransitionCss;
+				this.canvas.style.opacity = "0";
+			}, cursorDisappearDelay);
+		}
+	}
+
+	loop(now) {
+		this.rafId = null;
+		const dt =
+			this.lastFrameTime > 0
+				? clamp((now - this.lastFrameTime) / 1000, 0.001, 1 / 30)
+				: 1 / 60;
+		this.lastFrameTime = now;
+
+		// ====================================================================
+		// PHASE 1: 集中读布局 (Batch Read Layout)
+		// ====================================================================
+		if (!settings.color) {
+			this.refreshColors(this.activeEditor);
+		}
+
+		const guardRects = new Map();
+		const linesOffsets = new Map();
+		const measurements = [];
+
+		for (const [el, data] of this.cursors) {
+			if (!el.isConnected) {
+				this.cursors.delete(el);
+				continue;
+			}
+			if (data.overflowGuard && !guardRects.has(data.overflowGuard)) {
+				guardRects.set(
+					data.overflowGuard,
+					data.overflowGuard.getBoundingClientRect()
+				);
+			}
+			if (data.linesContent && !linesOffsets.has(data.linesContent)) {
+				linesOffsets.set(data.linesContent, {
+					left: parseFloat(data.linesContent.style.left) || 0,
+					top: parseFloat(data.linesContent.style.top) || 0,
+				});
+			}
+			const rect = el.getBoundingClientRect();
+			const s = el.style;
+			const isDisplayed =
+				s.display !== "none" &&
+				!s.transform.includes("-10000px") &&
+				rect.width > 0 &&
+				rect.height > 0;
+			const hasSelection =
+				data.layer?.classList.contains("has-selection") || false;
+			const sig = this.getInlineSig(el, data.linesContent);
+			measurements.push({
+				data,
+				rect,
+				isDisplayed,
+				hasSelection,
+				sig,
+				clipRect: data.overflowGuard
+					? guardRects.get(data.overflowGuard)
+					: null,
+				linesOffset: data.linesContent
+					? linesOffsets.get(data.linesContent)
+					: { left: 0, top: 0 },
+			});
+		}
+
+		// ====================================================================
+		// PHASE 2: 物理状态更新 (Physics Update)
+		// ====================================================================
+		let isAnyAnimating = false;
+		let needsFollowUpFrame = false;
+
+		for (const m of measurements) {
+			const { data, rect, isDisplayed, hasSelection, sig, linesOffset } =
+				m;
+			data.lastSig = sig;
+
+			const dLinesLeft = linesOffset.left - data.lastLinesLeft;
+			const dLinesTop = linesOffset.top - data.lastLinesTop;
+			data.lastLinesLeft = linesOffset.left;
+			data.lastLinesTop = linesOffset.top;
+
+			if (!isDisplayed) {
+				data.isAnimating = false;
+				continue;
+			}
+
+			// 首次发现光标
+			if (!data.instance.initialized) {
+				data.instance.updateSize(rect.width, rect.height);
+				const isSecondary =
+					data.el.classList.contains("cursor-secondary");
+				const isEditorFocused =
+					data.editor?.classList.contains("focused") ||
+					data.editor?.contains(document.activeElement);
+				const shouldAnimateFromGlobal =
+					globalCursorState.lastX !== null &&
+					(isSecondary ||
+						(isEditorFocused &&
+							this.activeEditor &&
+							this.activeEditor !== data.editor));
+
+				if (shouldAnimateFromGlobal) {
+					data.instance.move(rect.left, rect.top, {
+						x: globalCursorState.lastX,
+						y: globalCursorState.lastY,
+						width: globalCursorState.lastWidth,
+						height: globalCursorState.lastHeight,
+					});
+					this.setActiveEditor(data.editor);
+				} else {
+					data.instance.snap(rect.left, rect.top);
+					if (isEditorFocused || globalCursorState.lastX === null) {
+						this.setActiveEditor(data.editor);
+						globalCursorState.lastX = rect.left + rect.width / 2;
+						globalCursorState.lastY = rect.top + rect.height / 2;
+						globalCursorState.lastWidth = rect.width;
+						globalCursorState.lastHeight = rect.height;
+						globalCursorState.lastUpdated = Date.now();
+					}
+				}
+				data.lastX = rect.left;
+				data.lastY = rect.top;
+				data.lastWidth = rect.width;
+				data.lastHeight = rect.height;
+				data.pendingEditorJump = false;
+			} else {
+				const dx = rect.left - data.lastX;
+				const dy = rect.top - data.lastY;
+				const sizeChanged =
+					rect.width !== data.lastWidth ||
+					rect.height !== data.lastHeight;
+				const hasMoved =
+					Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01 || sizeChanged;
+
+				// 比较 .lines-content 的 top/left 变化量，与光标位移相同时视为滚动
+				const isScrollMove =
+					(dLinesLeft !== 0 || dLinesTop !== 0) &&
+					Math.abs(dx - dLinesLeft) <= 1.5 &&
+					Math.abs(dy - dLinesTop) <= 1.5;
+
+				// 滚动时或禁用选择拖尾且处于选中状态时，直接贴合不做动画
+				if (
+					isScrollMove ||
+					(hasMoved && hasSelection && !settings.animateOnSelection)
+				) {
+					data.instance.updateSize(rect.width, rect.height);
+					data.instance.snap(rect.left, rect.top);
+					data.lastX = rect.left;
+					data.lastY = rect.top;
+					data.lastWidth = rect.width;
+					data.lastHeight = rect.height;
+					if (data.editor === this.activeEditor) {
+						globalCursorState.lastX = rect.left + rect.width / 2;
+						globalCursorState.lastY = rect.top + rect.height / 2;
+						globalCursorState.lastWidth = rect.width;
+						globalCursorState.lastHeight = rect.height;
+					}
+					data.isAnimating = false;
+					continue;
+				}
+
+				if (data.pendingEditorJump) {
+					if (hasMoved || data.pendingWaitDone) {
+						data.instance.updateSize(rect.width, rect.height);
+						data.instance.move(
+							rect.left,
+							rect.top,
+							data.jumpSource
+						);
+						data.lastX = rect.left;
+						data.lastY = rect.top;
+						data.lastWidth = rect.width;
+						data.lastHeight = rect.height;
+						data.pendingEditorJump = false;
+						data.pendingWaitDone = false;
+					} else {
+						data.pendingWaitDone = true;
+						needsFollowUpFrame = true;
+					}
+				} else if (hasMoved) {
+					const crossEditorSource =
+						this.activeEditor &&
+						this.activeEditor !== data.editor &&
+						globalCursorState.lastX !== null
+							? {
+									x: globalCursorState.lastX,
+									y: globalCursorState.lastY,
+									width: globalCursorState.lastWidth,
+									height: globalCursorState.lastHeight,
+							  }
+							: null;
+					this.setActiveEditor(data.editor);
+					data.instance.updateSize(rect.width, rect.height);
+					data.instance.move(rect.left, rect.top, crossEditorSource);
+					data.lastX = rect.left;
+					data.lastY = rect.top;
+					data.lastWidth = rect.width;
+					data.lastHeight = rect.height;
+				}
+			}
+
+			const anim = data.instance.step(dt, false);
+			data.isAnimating = anim;
+			if (anim) {
+				isAnyAnimating = true;
+			}
+		}
+
+		// ====================================================================
+		// PHASE 3: 集中写 Canvas 与 DOM class (Batch Write)
+		// ====================================================================
+		this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+		this.ctx.clearRect(0, 0, this.viewportWidth, this.viewportHeight);
+
+		if (isAnyAnimating || this.canvas.style.opacity === "1") {
+			for (const m of measurements) {
+				const { data, isDisplayed, clipRect } = m;
+				if (!isDisplayed || !data.instance.initialized) continue;
+				if (data.editor === this.activeEditor) {
+					data.instance.draw(
+						this.ctx,
+						clipRect,
+						this.finalColorCss,
+						this.shadowColorCss
+					);
+				}
+			}
+		}
+
+		if (isAnyAnimating) {
+			this.showCanvasAndHideNative();
+			this.rafId = requestAnimationFrame(this.boundLoop);
+		} else {
+			this.revealNativeAndFadeCanvas();
+			if (needsFollowUpFrame) {
+				this.rafId = requestAnimationFrame(this.boundLoop);
+			}
+		}
+	}
+}
+
+window.__springyCursor = new Manager();
 })();
