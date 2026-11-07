@@ -44,6 +44,40 @@
 3. **M3 本地测试台（已完成）**：`playground/index.html` 用 npm 的 `monaco-editor` 搭一个编辑器加载运行时，用 agent-browser 截图/录屏验证：单行打字、跨行跳转、多光标、分屏、滚动、HiDPI（`set viewport 1280 720 2`）。性能指标：空闲 5 秒内 rAF 回调次数应为 0。
 4. **M4 真机验证与发布**：`npx @vscode/vsce package` 打包 vsix，在真实 VS Code 里装 Custom CSS Loader 测试；写 README（安装、卸载、“已损坏”提示说明）；发布到 Marketplace / Open VSX（需要 publisher 账号）。
 
+## M5 安装即用（待做）
+
+目标：去掉 Custom CSS and JS Loader 依赖，由本扩展自己注入。用户要做的只剩：安装后点一次“重启”，VS Code 每次升级后再点一次。不再需要手动 Enable / Reload，也不再弹“安装似乎已损坏”。
+
+做不到的部分（写进 README）：注入后必须重载窗口才生效；安装目录不可写时扩展无能为力（Windows 系统级安装需要管理员权限，Linux Snap 只读，macOS 可能需要授予“App 管理”权限）。
+
+### 设计
+
+- **定位文件**：`vscode.env.appRoot` 下的 `out/vs/code/electron-browser/workbench/workbench.html`（新版），不存在时退回 `out/vs/code/electron-sandbox/workbench/workbench.html`（`engines` 写的是 `^1.85.0`，旧版用这个路径）。校验表在 `appRoot/product.json` 的 `checksums`，键是相对 `out/` 的路径。
+- **注入方式**：运行时写成单独的 `springy-cursor.js`，放在 `workbench.html` 同目录，HTML 里只插一行 `<!-- springy-cursor --><script src="springy-cursor.js"></script>`。好处：
+  - `script-src 'self'` 允许同源脚本，不用删 CSP（Custom CSS Loader 的做法据说是直接删掉 CSP，待核实）。**待验证**：Trusted Types 和 CSP 是否放行，不行再考虑往 CSP 里加脚本哈希。
+  - 改设置只需要重写这个 JS 文件，HTML 和校验值都不用动。
+  - 这个 JS 文件不在 `checksums` 表里，不影响完整性校验。
+- **校验值**：改完 HTML 后，把 `checksums` 里 HTML 那一项更新成新文件的哈希。算法：`sha256` → base64 → 去掉末尾的 `=`（已用未改动的 `workbench.desktop.main.js` 验证过）。只改这一项，其他项保持原样。
+- **备份与还原**：第一次打补丁前，把原始 HTML 和原始校验值存进 `globalStorage`，按 `product.json` 的 `commit` 区分版本。还原时写回这两样，并删掉 `springy-cursor.js`。
+- **启动时自检**（`onStartupFinished`）：
+  1. HTML 里没有标记（新装或 VS Code 刚升级）→ 打补丁、修校验值，然后弹“Springy Cursor 已安装，重载窗口以启用”。
+  2. 有标记但 `springy-cursor.js` 和当前设置或运行时版本不一致（扩展更新、关着 VS Code 时改了设置）→ 重写 JS，弹“重载窗口以应用”。
+  3. 都一致 → 什么也不做。
+- **改设置**：`onDidChangeConfiguration` 时重写 JS，弹“重载窗口以应用”，按钮执行 `workbench.action.reloadWindow`，比完整重启快。**待验证**：重载窗口是否会从磁盘重新读取 `workbench.html` 和 JS；`product.json` 的校验表是否要完整重启才会重新读取（如果是，打补丁后的第一次只能提示完整重启）。
+- **命令**：保留 `Springy Cursor: Enable`（手动重新打补丁）和 `Springy Cursor: Disable`（还原 HTML 和校验值），不再调用 `extension.updateCustomCSS`。
+- **卸载**：在 `package.json` 的 `scripts` 里加 `vscode:uninstall`，指向一个独立的 Node 脚本，用它还原 HTML 和校验值。这个钩子里没有 `vscode` API，appRoot 需要从 `process.execPath` 推算，或者在打补丁时记到一个固定位置的文件里（**待验证**哪种可靠）。
+- **出错处理**：写文件遇到 `EACCES` / `EPERM` / `EROFS` 时，弹一条说明，写清楚安装路径和对应的解决办法（以管理员身份运行一次 / 改目录权限 / Snap 不支持，换 `.deb` 或 tarball），不要反复弹。
+- **从旧版迁移**：如果 `vscode_custom_css.imports` 里还有我们那条 globalStorage 路径，把它删掉，并提示用户可以执行 Custom CSS Loader 的 `Reload` 来清理它注入的旧内容。在清理之前两边可能都会注入，运行时已经用 IIFE 防止重复执行，不会画出两份拖尾。
+
+### 步骤
+
+- [ ] 新建 `patcher.js`：定位文件、打补丁、还原、算校验值、备份。纯 Node，不依赖 `vscode`，这样 `vscode:uninstall` 脚本也能复用。
+- [ ] 改写 `extension.js`：启动自检、设置变化重写 JS、Enable / Disable 命令、旧版迁移、权限出错提示。
+- [ ] `package.json`：删掉 `extensionDependencies`，加 `vscode:uninstall`。
+- [ ] 测试：用 `node:test` 跑 `patcher.js`，夹具是真实 VS Code 的 `workbench.html` 和 `product.json` 副本。验证打补丁后再还原，文件逐字节一致；补丁后算出的哈希和 VS Code 自己的算法一致（拿未改动的文件对照 `product.json` 原值）；重复打补丁不会插入第二行。
+- [ ] 真机验证：在真实 VS Code 里装 VSIX，确认重启后拖尾生效、没有“已损坏”通知（按通知正文文本检测，不要只靠 DOM 选择器）；改设置后重载窗口生效；Disable 后文件和校验值恢复原样；模拟升级（把 HTML 换回原版）后启动能自动补上。
+- [ ] 更新 README：删掉 Custom CSS Loader 相关步骤和“点不再显示”的说明，写新的安装、卸载流程和上面那些做不到的情况。
+
 ## 本地验证 M1 的方法
 
 1. `npx @vscode/vsce package` 生成 vsix，`Extensions: Install from VSIX...` 安装（会自动要求安装 Custom CSS Loader）。
