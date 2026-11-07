@@ -110,6 +110,31 @@
 			flex-shrink: 0;
 		}
 	</style>
+	<!-- 与 Custom CSS and JS Loader 一致：运行时在 <head> 中执行，此时 document.body 尚不存在 -->
+	<script>
+		// 统计 requestAnimationFrame 调用次数（不触发 DOM 改动，避免干扰 MutationObserver）
+		window.__rafTotal = 0;
+		const origRAF = window.requestAnimationFrame.bind(window);
+		window.requestAnimationFrame = function (cb) {
+			return origRAF(function (ts) {
+				window.__rafTotal++;
+				cb(ts);
+			});
+		};
+
+		window.SPRINGY_CONFIG = {
+			color: "#FFC0CB",
+			opacity: 1,
+			glow: true,
+			glowBlur: 0.5,
+			preset: "neovide",
+			animationLength: 0.125,
+			shortAnimationLength: 0.05,
+			animateOnTyping: true,
+			animateOnSelection: true,
+		};
+	</script>
+	<script src="../runtime/springy-cursor.js"></script>
 </head>
 <body>
 	<div class="toolbar">
@@ -146,30 +171,6 @@
 		<div id="editor-right" class="pane"></div>
 	</div>
 
-	<script>
-		// 统计 requestAnimationFrame 调用次数（不触发 DOM 改动，避免干扰 MutationObserver）
-		window.__rafTotal = 0;
-		const origRAF = window.requestAnimationFrame.bind(window);
-		window.requestAnimationFrame = function (cb) {
-			return origRAF(function (ts) {
-				window.__rafTotal++;
-				cb(ts);
-			});
-		};
-
-		window.SPRINGY_CONFIG = {
-			color: "#FFC0CB",
-			opacity: 1,
-			glow: true,
-			glowBlur: 0.5,
-			preset: "neovide",
-			animationLength: 0.125,
-			shortAnimationLength: 0.05,
-			animateOnTyping: true,
-			animateOnSelection: true,
-		};
-	</script>
-	<script src="../runtime/springy-cursor.js"></script>
 	<script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
 	<script>
 		const sampleLines = [];

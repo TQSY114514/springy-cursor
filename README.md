@@ -39,14 +39,14 @@ Neovide / Zed 风格的 VS Code 弹簧光标拖尾扩展，源自 [LengineerC / 
 | `springyCursor.glow` | `boolean` | `true` | 是否绘制发光阴影 |
 | `springyCursor.glowBlur` | `number` | `0.5` | 发光模糊半径（光标尺寸的倍数） |
 | `springyCursor.preset` | `string` | `"neovide"` | 手感预设：`neovide`（经典高弹性）、`subtle`（短促克制）、`zed`（平滑紧致，无前端硬吸附）、`custom`（自定义高级参数） |
-| `springyCursor.animationLength` | `number` | `0.125` | 远距离跳转动画时长（秒） |
-| `springyCursor.shortAnimationLength` | `number` | `0.05` | 同行短距离移动（如打字）动画时长（秒） |
+| `springyCursor.animationLength` | `number` | `0.125` | 远距离跳转动画时长（秒），仅 `custom` 预设生效 |
+| `springyCursor.shortAnimationLength` | `number` | `0.05` | 同行短距离移动（如打字）动画时长（秒），仅 `custom` 预设生效 |
 | `springyCursor.animateOnTyping` | `boolean` | `true` | 打字（同行短距离移动）时是否启用拖尾 |
 | `springyCursor.animateOnSelection` | `boolean` | `true` | 选择文本时是否启用拖尾 |
-| `springyCursor.rankTrailFactors` | `number[]` | `[1, 0.9, 0.5, 0.3]` | 四个角点从最滞后（rank 0）到最领先（rank 3）的时长倍率 |
-| `springyCursor.hardSnap` | `boolean` | `true` | 移动方向前端角点是否快速吸附 |
-| `springyCursor.leadingSnapFactor` | `number` | `0.1` | 前端角点吸附时长倍率 |
-| `springyCursor.leadingSnapThreshold` | `number` | `0.5` | 判定为前端角点的方向对齐度阈值（`0` ~ `1`） |
+| `springyCursor.rankTrailFactors` | `number[]` | `[1, 0.9, 0.5, 0.3]` | 四个角点从最滞后（rank 0）到最领先（rank 3）的时长倍率，仅 `custom` 预设生效 |
+| `springyCursor.hardSnap` | `boolean` | `true` | 移动方向前端角点是否快速吸附，仅 `custom` 预设生效 |
+| `springyCursor.leadingSnapFactor` | `number` | `0.16` | 前端角点吸附时长倍率，仅 `custom` 预设生效 |
+| `springyCursor.leadingSnapThreshold` | `number` | `0.5` | 判定为前端角点的方向对齐度阈值（`0` ~ `1`），仅 `custom` 预设生效 |
 
 ## 禁用与卸载
 

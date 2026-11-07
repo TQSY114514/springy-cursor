@@ -7,24 +7,23 @@ if (window.__springyCursor) return;
 const initialCfg =
 	typeof CONFIG !== "undefined" ? CONFIG : window.SPRINGY_CONFIG || {};
 
+// 前端吸附时长 = 基础时长 × leadingSnapFactor（neovide / subtle 的取值约等于原版固定的 20ms / 15ms）
 const PRESETS = {
 	neovide: {
 		animationLength: 0.125,
 		shortAnimationLength: 0.05,
 		rankTrailFactors: [1.0, 0.9, 0.5, 0.3],
 		hardSnap: true,
-		leadingSnapFactor: 0.1,
+		leadingSnapFactor: 0.16,
 		leadingSnapThreshold: 0.5,
-		snapAnimationLength: 0.02,
 	},
 	subtle: {
 		animationLength: 0.08,
 		shortAnimationLength: 0.03,
 		rankTrailFactors: [0.85, 0.75, 0.5, 0.35],
 		hardSnap: true,
-		leadingSnapFactor: 0.15,
+		leadingSnapFactor: 0.19,
 		leadingSnapThreshold: 0.5,
-		snapAnimationLength: 0.015,
 	},
 	zed: {
 		animationLength: 0.1,
@@ -33,7 +32,6 @@ const PRESETS = {
 		hardSnap: false,
 		leadingSnapFactor: 0.35,
 		leadingSnapThreshold: 0.5,
-		snapAnimationLength: 0.03,
 	},
 };
 
@@ -47,8 +45,10 @@ const ACTIVE_BODY_CLASS = "springy-cursor-active";
 
 function buildRuntimeSettings(raw) {
 	const presetName = raw.preset || "neovide";
+	// 只有 custom 使用用户的手感参数，缺省值取 neovide；其他预设使用固定取值
+	const isCustom = presetName === "custom";
 	const preset = PRESETS[presetName] || PRESETS.neovide;
-	const usePresetValues = presetName === "subtle" || presetName === "zed";
+	const pick = (key) => (isCustom ? raw[key] ?? preset[key] : preset[key]);
 
 	return {
 		color: typeof raw.color === "string" ? raw.color.trim() : "#FFC0CB",
@@ -56,12 +56,8 @@ function buildRuntimeSettings(raw) {
 		glow: raw.glow ?? true,
 		glowBlur: raw.glowBlur ?? 0.5,
 		preset: presetName,
-		animationLength: usePresetValues
-			? preset.animationLength
-			: raw.animationLength ?? preset.animationLength,
-		shortAnimationLength: usePresetValues
-			? preset.shortAnimationLength
-			: raw.shortAnimationLength ?? preset.shortAnimationLength,
+		animationLength: pick("animationLength"),
+		shortAnimationLength: pick("shortAnimationLength"),
 		animateOnTyping:
 			raw.animateOnTyping ??
 			(raw.disableWhenTyping !== undefined
@@ -73,21 +69,14 @@ function buildRuntimeSettings(raw) {
 				? !raw.disableWhenSelecting
 				: true),
 		rankTrailFactors:
-			!usePresetValues &&
+			isCustom &&
 			Array.isArray(raw.rankTrailFactors) &&
 			raw.rankTrailFactors.length === 4
 				? raw.rankTrailFactors
 				: preset.rankTrailFactors,
-		hardSnap: usePresetValues
-			? preset.hardSnap
-			: raw.hardSnap ?? preset.hardSnap,
-		leadingSnapFactor: usePresetValues
-			? preset.leadingSnapFactor
-			: raw.leadingSnapFactor ?? preset.leadingSnapFactor,
-		leadingSnapThreshold: usePresetValues
-			? preset.leadingSnapThreshold
-			: raw.leadingSnapThreshold ?? preset.leadingSnapThreshold,
-		snapAnimationLength: preset.snapAnimationLength,
+		hardSnap: pick("hardSnap"),
+		leadingSnapFactor: pick("leadingSnapFactor"),
+		leadingSnapThreshold: pick("leadingSnapThreshold"),
 	};
 }
 
@@ -228,9 +217,7 @@ class Corner {
 			? settings.leadingSnapFactor
 			: settings.rankTrailFactors[rank] ?? 1.0;
 
-		const len = isLeadingSnap
-			? settings.snapAnimationLength
-			: baseTime * clamp(finalFactor, 0, 2);
+		const len = baseTime * clamp(finalFactor, 0, 2);
 
 		this.ax.animationLength = len;
 		this.ay.animationLength = len;
@@ -1065,5 +1052,10 @@ class Manager {
 	}
 }
 
-window.__springyCursor = new Manager();
+// Custom CSS and JS Loader 把脚本内联到 <head>，此时 document.body 还不存在
+const start = () => {
+	if (!window.__springyCursor) window.__springyCursor = new Manager();
+};
+if (document.body) start();
+else document.addEventListener("DOMContentLoaded", start, { once: true });
 })();

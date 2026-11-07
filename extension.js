@@ -30,8 +30,14 @@ function writeScript(context) {
 	};
 	const template = fs.readFileSync(path.join(context.extensionPath, 'runtime', 'springy-cursor.js'), 'utf8');
 	const script = template.replace('/*__SPRINGY_CONFIG__*/', `const CONFIG = ${JSON.stringify(config)};`);
+	let previous = null;
+	try {
+		previous = fs.readFileSync(scriptPath(context), 'utf8');
+	} catch {}
+	if (script === previous) return false;
 	fs.mkdirSync(path.dirname(scriptPath(context)), { recursive: true });
 	fs.writeFileSync(scriptPath(context), script);
+	return true;
 }
 
 function importUri(context) {
@@ -75,8 +81,11 @@ function activate(context) {
 			promptReload('Springy Cursor settings changed. Reload Custom CSS and JS to apply them.');
 		}),
 	);
-	// After an extension update, refresh the generated script from the new runtime.
-	if (isEnabled(context)) writeScript(context);
+	// Custom CSS and JS Loader inlines the script into the workbench, so a changed
+	// script (extension update, settings edited while closed) needs a reload.
+	if (isEnabled(context) && writeScript(context)) {
+		promptReload('Springy Cursor has changed. Reload Custom CSS and JS to apply it.');
+	}
 }
 
 function deactivate() {}

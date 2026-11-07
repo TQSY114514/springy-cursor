@@ -90,13 +90,13 @@
 					"type": "number",
 					"default": 0.125,
 					"minimum": 0.01,
-					"description": "Animation length in seconds for cursor jumps."
+					"description": "Animation length in seconds for cursor jumps. Only used when preset is \"custom\"."
 				},
 				"springyCursor.shortAnimationLength": {
 					"type": "number",
 					"default": 0.05,
 					"minimum": 0.01,
-					"description": "Animation length in seconds for short moves on the same line, such as typing."
+					"description": "Animation length in seconds for short moves on the same line, such as typing. Only used when preset is \"custom\"."
 				},
 				"springyCursor.animateOnTyping": {
 					"type": "boolean",
@@ -123,26 +123,26 @@
 						"minimum": 0.05,
 						"maximum": 2
 					},
-					"description": "Trail duration multipliers for the 4 corners ordered from most trailing (rank 0) to most leading (rank 3)."
+					"description": "Trail duration multipliers for the 4 corners ordered from most trailing (rank 0) to most leading (rank 3). Only used when preset is \"custom\"."
 				},
 				"springyCursor.hardSnap": {
 					"type": "boolean",
 					"default": true,
-					"description": "Snap leading corners quickly toward the destination for an elastic stretch effect."
+					"description": "Snap leading corners quickly toward the destination for an elastic stretch effect. Only used when preset is \"custom\"."
 				},
 				"springyCursor.leadingSnapFactor": {
 					"type": "number",
-					"default": 0.1,
+					"default": 0.16,
 					"minimum": 0.01,
 					"maximum": 1,
-					"description": "Animation length multiplier for leading corners when hardSnap is enabled."
+					"description": "Animation length multiplier for leading corners when hardSnap is enabled. Only used when preset is \"custom\"."
 				},
 				"springyCursor.leadingSnapThreshold": {
 					"type": "number",
 					"default": 0.5,
 					"minimum": 0,
 					"maximum": 1,
-					"description": "Direction alignment threshold (0 to 1) above which a corner is treated as a leading corner."
+					"description": "Direction alignment threshold (0 to 1) above which a corner is treated as a leading corner. Only used when preset is \"custom\"."
 				}
 			}
 		}
