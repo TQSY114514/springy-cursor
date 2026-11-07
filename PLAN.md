@@ -1,4 +1,4 @@
-# Neovibe Cursor 计划
+# Springy Cursor 计划
 
 目标：给 VS Code 做一个 Neovide / Zed 风格的光标拖尾插件，自己长期维护，修掉 [30d98f9b2/Neovide-Cursor](https://github.com/30d98f9b2/Neovide-Cursor)（MIT，源自 LengineerC）的已知问题。
 
@@ -11,13 +11,13 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `package.json` | 命令 `neovibe.enable` / `neovibe.disable`，设置项 `neovibe.*`，依赖 Custom CSS Loader |
-| `extension.js` | 读取 `neovibe.*` 设置，把 `runtime/neovibe-cursor.js` 中的 `/*__NEOVIBE_CONFIG__*/` 替换成 `const CONFIG = {...}`，写到 `globalStorage/neovibe-cursor.js`，并把这个**不带版本号**的路径加入 `vscode_custom_css.imports` |
-| `runtime/neovibe-cursor.js` | 注入到 workbench 的运行时：弹簧物理 + canvas 绘制 |
+| `package.json` | 命令 `springyCursor.enable` / `springyCursor.disable`，设置项 `springyCursor.*`，依赖 Custom CSS Loader |
+| `extension.js` | 读取 `springyCursor.*` 设置，把 `runtime/springy-cursor.js` 中的 `/*__SPRINGY_CONFIG__*/` 替换成 `const CONFIG = {...}`，写到 `globalStorage/springy-cursor.js`，并把这个**不带版本号**的路径加入 `vscode_custom_css.imports` |
+| `runtime/springy-cursor.js` | 注入到 workbench 的运行时：弹簧物理 + canvas 绘制 |
 
 ## 原插件的问题和对应修复
 
-行号指 `runtime/neovibe-cursor.js` 当前版本（目前仍是原版逻辑）。
+行号指 `runtime/springy-cursor.js` 当前版本（目前仍是原版逻辑）。
 
 - [x] **配置要手改插件安装目录里的 JS，更新即丢失；注入路径带版本号，更新后失效** → 改为 VS Code 设置 + 生成到 globalStorage（M1 已完成）。
 - [x] **`Remove Generated Path` 会删掉所有路径含 `cursor` / `neovide` 的导入** → 只删除自己那一条（M1 已完成）。
@@ -31,7 +31,7 @@
 
 ## 新功能（修完上面之后）
 
-- [ ] `neovibe.color` 留空时使用主题的 `--vscode-editorCursor-foreground`。
+- [ ] `springyCursor.color` 留空时使用主题的 `--vscode-editorCursor-foreground`。
 - [ ] 跟随光标样式（line / block / underline）以及 VSCodeVim、VSCode Neovim 的模式切换（光标 DOM 尺寸已经反映了这些，主要是验证）。
 - [ ] 暴露拖尾手感参数（rank trail factors、snap）作为高级设置，或做几组预设（subtle / neovide / zed-like）。
 - [ ] 打字时（同一行短距离移动）可选关闭拖尾。
@@ -47,6 +47,6 @@
 ## 本地验证 M1 的方法
 
 1. `npx @vscode/vsce package` 生成 vsix，`Extensions: Install from VSIX...` 安装（会自动要求安装 Custom CSS Loader）。
-2. 首次使用先执行 `Enable Custom CSS and JS`，再执行 `Neovibe: Enable / Update Cursor Trail`，点击弹窗里的 Reload，重启 VS Code。
-3. 修改 `neovibe.color` 后会提示 Reload，重载后颜色生效。
-4. 执行 `Neovibe: Disable Cursor Trail`，确认 `vscode_custom_css.imports` 里其他条目都还在。
+2. 首次使用先执行 `Enable Custom CSS and JS`，再执行 `Springy Cursor: Enable / Update Cursor Trail`，点击弹窗里的 Reload，重启 VS Code。
+3. 修改 `springyCursor.color` 后会提示 Reload，重载后颜色生效。
+4. 执行 `Springy Cursor: Disable Cursor Trail`，确认 `vscode_custom_css.imports` 里其他条目都还在。

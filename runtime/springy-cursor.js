@@ -1,7 +1,7 @@
-// neovibe-cursor.js — 基于 LengineerC / 30d98f9b2 的 Neovide-Cursor (MIT)
+// springy-cursor.js — 基于 LengineerC / 30d98f9b2 的 Neovide-Cursor (MIT)
 (() => {
-if (window.__neovibeCursor) return;
-window.__neovibeCursor = true;
+if (window.__springyCursor) return;
+window.__springyCursor = true;
 
 /**
  * ====================================================================
@@ -33,8 +33,8 @@ window.__neovibeCursor = true;
 // SECTION 1: 用户可自定义参数 (User Configurations)
 // ====================================================================
 
-// 由扩展在生成注入脚本时替换为 `const CONFIG = {...};`（来自 neovibe.* 设置）
-/*__NEOVIBE_CONFIG__*/
+// 由扩展在生成注入脚本时替换为 `const CONFIG = {...};`（来自 springyCursor.* 设置）
+/*__SPRINGY_CONFIG__*/
 
 const tailColor = CONFIG.color;
 const tailOpacity = CONFIG.opacity;

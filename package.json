@@ -1,6 +1,6 @@
 {
-	"name": "neovibe",
-	"displayName": "Neovibe Cursor",
+	"name": "springy-cursor",
+	"displayName": "Springy Cursor",
 	"description": "Neovide-like animated cursor trail for VS Code",
 	"version": "0.1.0",
 	"publisher": "tqsy",
@@ -28,50 +28,50 @@
 	"contributes": {
 		"commands": [
 			{
-				"command": "neovibe.enable",
+				"command": "springyCursor.enable",
 				"title": "Enable / Update Cursor Trail",
-				"category": "Neovibe"
+				"category": "Springy Cursor"
 			},
 			{
-				"command": "neovibe.disable",
+				"command": "springyCursor.disable",
 				"title": "Disable Cursor Trail",
-				"category": "Neovibe"
+				"category": "Springy Cursor"
 			}
 		],
 		"configuration": {
-			"title": "Neovibe Cursor",
+			"title": "Springy Cursor",
 			"properties": {
-				"neovibe.color": {
+				"springyCursor.color": {
 					"type": "string",
 					"default": "#FFC0CB",
 					"pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
 					"description": "Trail color as #RGB, #RRGGBB or #RRGGBBAA."
 				},
-				"neovibe.opacity": {
+				"springyCursor.opacity": {
 					"type": "number",
 					"default": 1,
 					"minimum": 0,
 					"maximum": 1,
 					"description": "Trail opacity."
 				},
-				"neovibe.glow": {
+				"springyCursor.glow": {
 					"type": "boolean",
 					"default": true,
 					"description": "Draw a glow around the trail (costs some performance)."
 				},
-				"neovibe.glowBlur": {
+				"springyCursor.glowBlur": {
 					"type": "number",
 					"default": 0.5,
 					"minimum": 0,
 					"description": "Glow blur radius as a multiple of the cursor size."
 				},
-				"neovibe.animationLength": {
+				"springyCursor.animationLength": {
 					"type": "number",
 					"default": 0.125,
 					"minimum": 0.01,
 					"description": "Animation length in seconds for cursor jumps."
 				},
-				"neovibe.shortAnimationLength": {
+				"springyCursor.shortAnimationLength": {
 					"type": "number",
 					"default": 0.05,
 					"minimum": 0.01,
