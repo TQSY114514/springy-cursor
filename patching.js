@@ -129,6 +129,10 @@ function patch(appRoot, scriptText) {
 	const candidates = workbenchCandidates(appRoot);
 	if (!candidates.length) return 'unavailable';
 
+	// isPatched() and stripOwn() key off the sentinel, so never rely on the
+	// caller remembering to add it: baking it in here keeps the two in sync.
+	const body = String(scriptText).includes(SENTINEL) ? String(scriptText) : `// ${SENTINEL}\n${scriptText}`;
+
 	let result = 'unchanged';
 	for (const file of candidates) {
 		let html;
@@ -143,7 +147,7 @@ function patch(appRoot, scriptText) {
 		// <head>, so removing it from the tail only would leave it in place and
 		// the inline script would never run.
 		const base = stripOwn(html).replace(CSP_RE, '');
-		const block = `${START}\n<script>${scriptText}</script>\n${END}\n`;
+		const block = `${START}\n<script>${body}</script>\n${END}\n`;
 		const anchor = base.includes('</body>') ? base.lastIndexOf('</body>') : base.lastIndexOf('</head>');
 		if (anchor < 0) continue;
 		const next = base.slice(0, anchor) + block + base.slice(anchor);
