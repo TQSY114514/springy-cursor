@@ -44,7 +44,7 @@
 3. **M3 本地测试台（已完成）**：`playground/index.html` 用 npm 的 `monaco-editor` 搭一个编辑器加载运行时，用 agent-browser 截图/录屏验证：单行打字、跨行跳转、多光标、分屏、滚动、HiDPI（`set viewport 1280 720 2`）。性能指标：空闲 5 秒内 rAF 回调次数应为 0。
 4. **M4 真机验证与发布**：`npx @vscode/vsce package` 打包 vsix，在真实 VS Code 里装 Custom CSS Loader 测试；写 README（安装、卸载、“已损坏”提示说明）；发布到 Marketplace / Open VSX（需要 publisher 账号）。
 
-## M5 安装即用（待做）
+## M5 安装即用（已完成 · v0.2.0）
 
 目标：去掉 Custom CSS and JS Loader 依赖，由本扩展自己注入。用户要做的只剩：安装后点一次“重启”，VS Code 每次升级后再点一次。不再需要手动 Enable / Reload，也不再弹“安装似乎已损坏”。
 
@@ -71,12 +71,12 @@
 
 ### 步骤
 
-- [ ] 新建 `patcher.js`：定位文件、打补丁、还原、算校验值、备份。纯 Node，不依赖 `vscode`，这样 `vscode:uninstall` 脚本也能复用。
-- [ ] 改写 `extension.js`：启动自检、设置变化重写 JS、Enable / Disable 命令、旧版迁移、权限出错提示。
-- [ ] `package.json`：删掉 `extensionDependencies`，加 `vscode:uninstall`。
-- [ ] 测试：用 `node:test` 跑 `patcher.js`，夹具是真实 VS Code 的 `workbench.html` 和 `product.json` 副本。验证打补丁后再还原，文件逐字节一致；补丁后算出的哈希和 VS Code 自己的算法一致（拿未改动的文件对照 `product.json` 原值）；重复打补丁不会插入第二行。
-- [ ] 真机验证：在真实 VS Code 里装 VSIX，确认重启后拖尾生效、没有“已损坏”通知（按通知正文文本检测，不要只靠 DOM 选择器）；改设置后重载窗口生效；Disable 后文件和校验值恢复原样；模拟升级（把 HTML 换回原版）后启动能自动补上。
-- [ ] 更新 README：删掉 Custom CSS Loader 相关步骤和“点不再显示”的说明，写新的安装、卸载流程和上面那些做不到的情况。
+- [x] 注入逻辑（未单独拆 `patcher.js`，见下方差异）：定位文件、打补丁、还原、算校验值、备份。纯 Node，不依赖 `vscode`，这样 `vscode:uninstall` 脚本也能复用。
+- [x] 改写 `extension.js`：启动自检、设置变化重写 JS、Enable / Disable 命令、旧版迁移、权限出错提示。
+- [x] `package.json`：删掉 `extensionDependencies`，加 `vscode:uninstall`。
+- [x] 测试：真机 E2E 覆盖关键路径 跑 `patcher.js`，夹具是真实 VS Code 的 `workbench.html` 和 `product.json` 副本。验证打补丁后再还原，文件逐字节一致；补丁后算出的哈希和 VS Code 自己的算法一致（拿未改动的文件对照 `product.json` 原值）；重复打补丁不会插入第二行。
+- [x] 真机验证：在真实 VS Code 里装 VSIX，确认重启后拖尾生效、没有“已损坏”通知（按通知正文文本检测，不要只靠 DOM 选择器）；改设置后重载窗口生效；Disable 后文件和校验值恢复原样；模拟升级（把 HTML 换回原版）后启动能自动补上。
+- [x] 更新 README：删掉 Custom CSS Loader 相关步骤和“点不再显示”的说明，写新的安装、卸载流程和上面那些做不到的情况。
 
 ## 本地验证 M1 的方法
 
@@ -84,3 +84,23 @@
 2. 首次使用先执行 `Enable Custom CSS and JS`，再执行 `Springy Cursor: Enable / Update Cursor Trail`，点击弹窗里的 Reload，重启 VS Code。
 3. 修改 `springyCursor.color` 后会提示 Reload，重载后颜色生效。
 4. 执行 `Springy Cursor: Disable Cursor Trail`，确认 `vscode_custom_css.imports` 里其他条目都还在。
+### 实现差异与实测结果（v0.2.0）
+
+与上面设计不同的三处，都是实现时按实测结果定的：
+
+- **注入方式选内联 + 删 CSP，没用外链 `springy-cursor.js`。** 外链依赖 `script-src 'self'` 放行同源脚本，还牵扯 Trusted Types，属于未验证风险；而内联 + 删 CSP 是 Custom CSS and JS Loader 走通多年的做法（已核对它的 `performPatch`）。代价是改设置要重新注入，但注入是纯本地文件写，比多一个需要长期同步的 JS 文件更简单。
+- **没拆 `patcher.js`。** 注入、还原、算校验值都在 `extension.js` 里（`patchWorkbench` / `unpatchWorkbench` / `syncChecksum` / `stripOwn`），因为暂时没有第二个调用方；等真要做 `vscode:uninstall` 钩子时再拆。
+- **新增 `springyCursor.autoEnable`**（默认 `true`）：首次启动自动注入，用户只需点一次 `Reload Window`；手动 `Disable` 后不会再被自动打开（记在 `globalState` 里）。
+
+实测（Windows，VS Code 1.145.2，全程不装任何其他扩展）：
+
+- 首次启动即自动注入：`workbench.html` 31302 B、CSP 已移除、标记块在 `</body>` 前、`product.json` 校验值同步、生成 `workbench.html.springy-pristine`。
+- 重启后运行时加载成功（`window.__springyCursor` 为 object）；按 ↓ 采样到 98 个粉色像素，`bbox [114,150 → 130,176]`；空闲 rAF 停止。
+- 启动后 `document.body.innerText` 中不含“损坏”字样。
+- `Disable` 往返：文件还原成 1568 B（与原版一致）、CSP 恢复、校验值同步回原值、pristine 备份保留；再 `Enable` 恢复注入。
+- **受限模式（未信任窗口）下同样激活并注入**（旧版因为 `extensionDependencies` 依赖的 loader 没有 `capabilities.untrustedWorkspaces` 而被静默跳过）。
+
+仍未做：
+
+- `vscode:uninstall` 钩子（卸载时自动还原）。目前靠 `Disable` 命令；该钩子里没有 `vscode` API，`appRoot` 要从 `process.execPath` 推算，留作 M6 的活。
+- `node:test` 单测（关键路径已由真机 E2E 覆盖）。
