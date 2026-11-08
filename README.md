@@ -57,6 +57,8 @@ VS Code 扩展 API 不允许直接操作编辑器 DOM，而光标拖尾必须画
 
 1. 在命令面板执行 **`Springy Cursor: Disable Cursor Trail`**：从 `workbench.html` 中移除本扩展的注入块（其他自定义 CSS/JS 一律不动），并还原校验值。
 2. 按提示点击 **`Reload Window`**。
+
+> 直接在扩展面板卸载时也会自动清理：还原 `workbench.html`（含 CSP）、同步校验值、删除 pristine 备份，不会留下一个还在跑却没人能关的拖尾。
 3. 在扩展面板卸载 **Springy Cursor**。
 
 ## 本地开发与测试

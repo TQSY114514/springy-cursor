@@ -100,7 +100,11 @@
 - `Disable` 往返：文件还原成 1568 B（与原版一致）、CSP 恢复、校验值同步回原值、pristine 备份保留；再 `Enable` 恢复注入。
 - **受限模式（未信任窗口）下同样激活并注入**（旧版因为 `extensionDependencies` 依赖的 loader 没有 `capabilities.untrustedWorkspaces` 而被静默跳过）。
 
+后续补完（v0.2.1）：
+
+- **`vscode:uninstall` 钩子已做**（`scripts.vscode:uninstall` → `uninstall.js`）。卸载扩展时会还原 `workbench.html`（含 CSP）、重新同步 `product.json` 校验值、删掉 pristine 备份——以前直接卸载会留下注入，拖尾继续跑却没有扩展能关掉它。该钩子里没有 `vscode` API，`appRoot` 由 `patching.appRootFromExecPath(process.execPath)` 从安装根目录扫描 `<hash>/resources/app` 得到。
+- **注入逻辑已拆成 `patching.js`**（纯 Node，不 import `vscode`），扩展与卸载钩子共用：`patch` / `unpatch` / `stripOwn` / `syncChecksum` / `ensurePristine` / `removePristine` / `appRootFromExecPath`。`extension.js` 只剩 vscode 相关的部分（渲染配置、命令、弹窗、`globalState`）。
+
 仍未做：
 
-- `vscode:uninstall` 钩子（卸载时自动还原）。目前靠 `Disable` 命令；该钩子里没有 `vscode` API，`appRoot` 要从 `process.execPath` 推算，留作 M6 的活。
-- `node:test` 单测（关键路径已由真机 E2E 覆盖）。
+- `node:test` 单测（关键路径已由真机 E2E 覆盖；`patching.js` 已经是纯函数，后续补测试成本低）。
