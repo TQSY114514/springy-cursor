@@ -2,7 +2,11 @@
 
 Neovide / Zed style animated cursor trail for VS Code.
 
-![cursor trail](https://cdn.jsdelivr.net/gh/TQSY114514/springy-cursor@main/docs/trail-horizontal.png)
+![cursor trail](https://cdn.jsdelivr.net/gh/TQSY114514/springy-cursor@main/docs/trail.gif)
+
+<sub>Captured in One Dark Pro with the default settings; the trail inherits the theme cursor colour. The recording
+uses `"springyCursor.preset": "custom"` with `animationLength: 0.45` (everything else identical to `neovide`) so
+the smear is visible frame by frame — the shipped presets run 3–4x faster.</sub>
 
 Based on [Neovide-Cursor](https://github.com/30d98f9b2/Neovide-Cursor) by LengineerC (MIT), with the runtime
 rewritten: idle CPU is zero, the trail follows `devicePixelRatio`, it never paints outside the editor, and the
@@ -22,7 +26,7 @@ settings live in VS Code instead of a JS file inside the extension folder.
 - **Presets:** `neovide` (classic elastic), `subtle` (short and restrained), `zed` (smooth, no hard leading snap) and
   `custom`.
 
-![cursor trail on a line jump](https://cdn.jsdelivr.net/gh/TQSY114514/springy-cursor@main/docs/trail-vertical.png)
+![cursor trail, single frame](https://cdn.jsdelivr.net/gh/TQSY114514/springy-cursor@main/docs/trail-jump.png)
 
 ## Install
 
@@ -54,7 +58,7 @@ Search for `springyCursor` in Settings, then reload the window when prompted.
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `springyCursor.autoEnable` | boolean | `true` | Patch automatically on first start and after a VS Code update |
-| `springyCursor.color` | string | `""` | Trail color. Empty (the default) follows `--vscode-editorCursor-foreground`, re-read every frame so theme changes apply live. Set e.g. `#FFC0CB` for the pink used in the screenshots |
+| `springyCursor.color` | string | `""` | Trail color. Empty (the default) follows `--vscode-editorCursor-foreground`, re-read every frame so theme changes apply live. Set e.g. `#FFC0CB` if you want the pink from the icon |
 | `springyCursor.opacity` | number | `1` | Trail opacity (0–1) |
 | `springyCursor.glow` | boolean | `true` | Draw a glow around the trail |
 | `springyCursor.glowBlur` | number | `0.5` | Glow blur radius as a multiple of the cursor size |
