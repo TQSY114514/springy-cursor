@@ -2,7 +2,7 @@
 	"name": "springy-cursor",
 	"displayName": "Springy Cursor",
 	"description": "Neovide-like animated cursor trail for VS Code",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"publisher": "tqsy",
 	"license": "MIT",
 	"repository": {
@@ -26,9 +26,12 @@
 		"onStartupFinished"
 	],
 	"main": "./extension.js",
-	"extensionDependencies": [
-		"be5invis.vscode-custom-css"
-	],
+	"capabilities": {
+		"untrustedWorkspaces": {
+			"supported": true,
+			"description": "The cursor trail only patches the local editor UI; it never reads workspace contents, so it is safe in Restricted Mode."
+		}
+	},
 	"contributes": {
 		"commands": [
 			{
@@ -45,6 +48,11 @@
 		"configuration": {
 			"title": "Springy Cursor",
 			"properties": {
+				"springyCursor.autoEnable": {
+					"type": "boolean",
+					"default": true,
+					"description": "Wire the trail up automatically on first run and re-apply it after a VS Code update. Turn off to manage it only through the Enable/Disable commands."
+				},
 				"springyCursor.color": {
 					"type": "string",
 					"default": "#FFC0CB",

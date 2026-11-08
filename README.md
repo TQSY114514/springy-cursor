@@ -12,28 +12,33 @@ Neovide / Zed 风格的 VS Code 弹簧光标拖尾扩展，源自 [LengineerC / 
 - **多光标与分屏跳转**：即时感知新增光标（多光标）和跨分屏焦点切换。
 - **丰富的自定义设置**：支持跟随主题光标色（`--vscode-editorCursor-foreground`）、预设手感（`neovide` / `subtle` / `zed` / `custom`）、打字时关闭拖尾、选择文本时关闭拖尾，以及自动适配 `line` / `block` / `underline` 光标样式（含 VSCodeVim / VSCode Neovim 模式切换）。
 
-## 前置依赖与“不受支持 / 已损坏”提示说明
+## 工作原理与完整性校验
 
-由于 VS Code 扩展 API 不允许直接操作编辑器 DOM，本扩展依赖 [Custom CSS and JS Loader (`be5invis.vscode-custom-css`)](https://marketplace.visualstudio.com/items?itemName=be5invis.vscode-custom-css) 将运行时脚本注入 VS Code Workbench。
+VS Code 扩展 API 不允许直接操作编辑器 DOM，而光标拖尾必须画在编辑器视口之外，所以只能修改安装目录里的 `workbench.html`。本扩展**自己完成这次注入，不依赖任何第三方插件**：
 
-- 启用后，VS Code 启动时可能会提示 **“Code 安装似乎已损坏，请重新安装”**（`Your Code installation appears to be corrupt. Please reinstall.`）。这是修改 Workbench HTML 的正常现象，点击提示框齿轮选择 **“不再显示”**（`Don't Show Again`）即可。
-- 每次 **VS Code 版本更新**后，Workbench 文件会被重置，需重新执行一次 `Enable Custom CSS and JS`（或 `Reload Custom CSS and JS`）并重启 VS Code。
-- 本扩展将生成的运行时脚本存放在不带扩展版本号的 `globalStorage` 目录中，因此 **Springy Cursor 自身更新时不会导致注入路径失效**。
+- 注入内容以 `<!-- !! SPRINGY-CURSOR-START !! -->` / `END` 标记包裹，脚本内联（不是外链），因此改设置后需要重新注入一次。
+- 首次注入前会把原始 `workbench.html` 备份为 `workbench.html.springy-pristine`；`Disable Cursor Trail` 会据此完整还原（连 `Content-Security-Policy` 一起）。
+- **“Code 安装似乎已损坏”提示已被自动消除。** VS Code 启动时会校验自身文件的 sha256（记录在 `product.json` 的 `checksums` 里），注入会改动 `workbench.html` 导致哈希不符。本扩展在每次注入/还原后**自动把 `product.json` 中对应的校验值更新为文件真实哈希**，校验重新一致，提示不再出现。
+- 若 VS Code 装在需要管理员权限的目录（如 `C:\Program Files`），写 `product.json` 会失败；此时提示仍会出现，点击齿轮选 **“不再显示”**（`Don't Show Again`）即可，功能不受影响。
+- **VS Code 版本更新会自动自愈**：更新会换掉安装目录（目录名带 commit 短哈希）、重置 `workbench.html`；扩展每次启动都会检查，发现补丁丢失就自动重新注入并同步校验值，只需按提示重启一次窗口。
+- **受限模式（Restricted Mode）下同样生效**：已声明 `capabilities.untrustedWorkspaces`，未信任的窗口里也能正常激活与注入（它只改本机编辑器界面，不读取工作区内容）。
+- 从旧版本（依赖 Custom CSS and JS Loader）升级时，会自动清理 `vscode_custom_css.imports` 里遗留的那条导入，避免重复注入。
 
 ## 安装与启用
 
-1. 安装本扩展（会自动提示或要求安装依赖 `be5invis.vscode-custom-css`）。
-2. 按 `Ctrl+Shift+P`（macOS 为 `Cmd+Shift+P`）打开命令面板：
-   - 首次使用 Custom CSS and JS Loader 时，先执行 **`Enable Custom CSS and JS`**。
-   - 执行 **`Springy Cursor: Enable / Update Cursor Trail`**。
-3. 在弹出的提示中点击 **`Reload Custom CSS and JS`**，然后重启 VS Code 使注入生效。
+1. 安装本扩展（**无需安装任何其他插件**）。
+2. 首次启动时扩展自动完成全部配置：注入运行时、同步完整性校验值。
+3. 按弹窗提示点击一次 **`Reload Window`**，即可看到效果。
+
+> 不希望自动配置？把 `springyCursor.autoEnable` 设为 `false`，改用命令面板的 `Springy Cursor: Enable / Update Cursor Trail` 手动启用。
 
 ## 配置项
 
-在 VS Code 设置中搜索 `springyCursor` 修改后，点击弹窗中的 **`Reload Custom CSS and JS`** 即可生效：
+在 VS Code 设置中搜索 `springyCursor` 修改后，按弹窗提示 **`Reload Window`** 即可生效：
 
 | 设置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
+| `springyCursor.autoEnable` | `boolean` | `true` | 首次启动自动完成注入，并在 VS Code 更新后自动重新打补丁 |
 | `springyCursor.color` | `string` | `"#FFC0CB"` | 拖尾颜色（`#RGB`、`#RRGGBB`、`#RRGGBBAA`）。**留空 `""` 时自动使用当前主题的 `--vscode-editorCursor-foreground`** |
 | `springyCursor.opacity` | `number` | `1` | 拖尾不透明度（`0` ~ `1`） |
 | `springyCursor.glow` | `boolean` | `true` | 是否绘制发光阴影 |
@@ -50,8 +55,8 @@ Neovide / Zed 风格的 VS Code 弹簧光标拖尾扩展，源自 [LengineerC / 
 
 ## 禁用与卸载
 
-1. 在命令面板执行 **`Springy Cursor: Disable Cursor Trail`**（仅移除本扩展在 `vscode_custom_css.imports` 中注册的那一条路径，不会影响你的其他自定义 CSS/JS 导入）。
-2. 根据提示点击 **`Reload Custom CSS and JS`** 并重启 VS Code。
+1. 在命令面板执行 **`Springy Cursor: Disable Cursor Trail`**：从 `workbench.html` 中移除本扩展的注入块（其他自定义 CSS/JS 一律不动），并还原校验值。
+2. 按提示点击 **`Reload Window`**。
 3. 在扩展面板卸载 **Springy Cursor**。
 
 ## 本地开发与测试
