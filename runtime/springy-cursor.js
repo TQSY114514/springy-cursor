@@ -42,6 +42,9 @@ const cursorDisappearDelay = 50;
 const cursorFadeOutDuration = 0.075;
 const canvasFadeTransitionCss = `opacity ${cursorFadeOutDuration}s ease-out`;
 const ACTIVE_BODY_CLASS = "springy-cursor-active";
+// Remembered while following the theme cursor colour (settings.color === "").
+let colorHost = null;
+let lastThemeColor = "";
 
 function buildRuntimeSettings(raw) {
 	const presetName = raw.preset || "neovide";
@@ -473,15 +476,25 @@ class Manager {
 	refreshColors(editorEl) {
 		let rawColor = settings.color;
 		if (!rawColor) {
-			const target = editorEl || document.documentElement;
-			rawColor = getComputedStyle(target)
-				.getPropertyValue("--vscode-editorCursor-foreground")
-				.trim();
-			if (!rawColor && target !== document.documentElement) {
-				rawColor = getComputedStyle(document.documentElement)
+			// The theme publishes --vscode-editorCursor-foreground on the workbench
+			// element, not on :root, so walk out from the editor instead of guessing a
+			// single host. Remember the host that worked: this runs every frame.
+			const hosts = [editorEl, colorHost, document.querySelector(".monaco-workbench"), document.body, document.documentElement];
+			for (const host of hosts) {
+				if (!host) continue;
+				const value = getComputedStyle(host)
 					.getPropertyValue("--vscode-editorCursor-foreground")
 					.trim();
+				if (value) {
+					rawColor = value;
+					colorHost = host;
+					lastThemeColor = value;
+					break;
+				}
 			}
+			// No editor open (settings page, empty window): keep the last known cursor
+			// colour instead of flashing the default pink.
+			if (!rawColor) rawColor = lastThemeColor;
 		}
 		const colorObj = resolveColor(rawColor || "#FFC0CB");
 		this.finalColorCss = rgbaToCss({
@@ -490,6 +503,7 @@ class Manager {
 		});
 		this.shadowColorCss = settings.glow ? this.finalColorCss : null;
 	}
+
 
 	init() {
 		const style = document.createElement("style");

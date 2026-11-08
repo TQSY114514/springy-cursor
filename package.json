@@ -2,7 +2,7 @@
 	"name": "springy-cursor",
 	"displayName": "Springy Cursor",
 	"description": "Neovide-like animated cursor trail for VS Code",
-	"version": "0.2.3",
+	"version": "0.2.4",
 	"publisher": "tqsy",
 	"license": "MIT",
 	"repository": {
