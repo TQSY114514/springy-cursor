@@ -1,74 +1,87 @@
 # Springy Cursor
 
-Neovide / Zed 风格的 VS Code 弹簧光标拖尾扩展，源自 [LengineerC / 30d98f9b2 的 Neovide-Cursor](https://github.com/30d98f9b2/Neovide-Cursor)（MIT），重写了运行时以解决空闲耗电、闪烁、HiDPI 模糊、越界绘制和配置丢失等问题。
+Neovide / Zed style animated cursor trail for VS Code.
 
-## 特性
+![cursor trail](https://raw.githubusercontent.com/TQSY114514/springy-cursor/main/docs/trail-horizontal.png)
 
-- **四角阻尼弹簧物理模型**：光标四个角点独立受临界阻尼弹簧驱动，根据移动方向对齐度动态分级拉伸与收缩。
-- **零空闲功耗**：基于 `MutationObserver` 按需唤醒 `requestAnimationFrame`，所有弹簧收敛后完全停止循环；每帧读写分离，避免强制同步重排。
-- **HiDPI 清晰渲染**：自动跟随 `devicePixelRatio` 缩放画布并监听分辨率变化。
-- **严格编辑器边界裁剪**：绘制前裁剪到所属编辑器的 `.overflow-guard`，拖尾与发光不会溢出到侧边栏、标签栏或分屏分隔线上。
-- **虚拟滚动贴合**：对比 `.lines-content` 位移与光标位移，滚动时直接贴合，不产生误拖尾。
-- **多光标与分屏跳转**：即时感知新增光标（多光标）和跨分屏焦点切换。
-- **丰富的自定义设置**：支持跟随主题光标色（`--vscode-editorCursor-foreground`）、预设手感（`neovide` / `subtle` / `zed` / `custom`）、打字时关闭拖尾、选择文本时关闭拖尾，以及自动适配 `line` / `block` / `underline` 光标样式（含 VSCodeVim / VSCode Neovim 模式切换）。
+Based on [Neovide-Cursor](https://github.com/30d98f9b2/Neovide-Cursor) by LengineerC (MIT), with the runtime
+rewritten: idle CPU is zero, the trail follows `devicePixelRatio`, it never paints outside the editor, and the
+settings live in VS Code instead of a JS file inside the extension folder.
 
-## 工作原理与完整性校验
+## Features
 
-VS Code 扩展 API 不允许直接操作编辑器 DOM，而光标拖尾必须画在编辑器视口之外，所以只能修改安装目录里的 `workbench.html`。本扩展**自己完成这次注入，不依赖任何第三方插件**：
+- **Four-corner damped springs.** Each corner of the cursor block is driven by a critically damped spring, so the
+  block stretches and compresses depending on the direction of travel.
+- **Zero idle cost.** A `MutationObserver` wakes `requestAnimationFrame` only when something moves; once every
+  spring settles the loop stops completely.
+- **HiDPI crisp.** The canvas follows `devicePixelRatio` and reacts to monitor changes.
+- **Clipped to the editor.** Drawing is clipped to the owning editor's `.overflow-guard`, so the trail never bleeds
+  into the sidebar, tab bar or split borders.
+- **Scroll aware.** Virtual scrolling is measured against `.lines-content` and matched instead of animated.
+- **Multi-cursor and split views** are picked up immediately.
+- **Presets:** `neovide` (classic elastic), `subtle` (short and restrained), `zed` (smooth, no hard leading snap) and
+  `custom`.
 
-- 注入内容以 `<!-- !! SPRINGY-CURSOR-START !! -->` / `END` 标记包裹，脚本内联（不是外链），因此改设置后需要重新注入一次。
-- 首次注入前会把原始 `workbench.html` 备份为 `workbench.html.springy-pristine`；`Disable Cursor Trail` 会据此完整还原（连 `Content-Security-Policy` 一起）。
-- **“Code 安装似乎已损坏”提示已被自动消除。** VS Code 启动时会校验自身文件的 sha256（记录在 `product.json` 的 `checksums` 里），注入会改动 `workbench.html` 导致哈希不符。本扩展在每次注入/还原后**自动把 `product.json` 中对应的校验值更新为文件真实哈希**，校验重新一致，提示不再出现。
-- 若 VS Code 装在需要管理员权限的目录（如 `C:\Program Files`），写 `product.json` 会失败；此时提示仍会出现，点击齿轮选 **“不再显示”**（`Don't Show Again`）即可，功能不受影响。
-- **VS Code 版本更新会自动自愈**：更新会换掉安装目录（目录名带 commit 短哈希）、重置 `workbench.html`；扩展每次启动都会检查，发现补丁丢失就自动重新注入并同步校验值，只需按提示重启一次窗口。
-- **受限模式（Restricted Mode）下同样生效**：已声明 `capabilities.untrustedWorkspaces`，未信任的窗口里也能正常激活与注入（它只改本机编辑器界面，不读取工作区内容）。
-- 从旧版本（依赖 Custom CSS and JS Loader）升级时，会自动清理 `vscode_custom_css.imports` 里遗留的那条导入，避免重复注入。
+## Install
 
-## 安装与启用
+1. Install from the Marketplace — **no companion extension required**.
+2. On the first start it patches `workbench.html` itself and asks for **one** `Reload Window`.
 
-1. 安装本扩展（**无需安装任何其他插件**）。
-2. 首次启动时扩展自动完成全部配置：注入运行时、同步完整性校验值。
-3. 按弹窗提示点击一次 **`Reload Window`**，即可看到效果。
+> Prefer to drive it manually? Set `springyCursor.autoEnable` to `false` and use the
+> `Springy Cursor: Enable / Update Cursor Trail` and `Disable Cursor Trail` commands.
 
-> 不希望自动配置？把 `springyCursor.autoEnable` 设为 `false`，改用命令面板的 `Springy Cursor: Enable / Update Cursor Trail` 手动启用。
+## How it works, and what it touches
 
-## 配置项
+VS Code gives extensions no access to the workbench DOM, so the runtime has to be injected into
+`workbench.html` in the installation directory. This extension does that itself:
 
-在 VS Code 设置中搜索 `springyCursor` 修改后，按弹窗提示 **`Reload Window`** 即可生效：
+- The injected code sits in a marked block (`SPRINGY-CURSOR-START` / `END`) with the script inlined, and the
+  original file is kept as `workbench.html.springy-pristine`.
+- After every patch the matching `sha256` entry for `workbench.html` is rewritten in `product.json`, so VS Code
+  does **not** complain that "your Code installation appears to be corrupt".
+- A VS Code update replaces the install directory and resets `workbench.html`; the extension notices on startup and
+  re-applies the patch, so you only reload the window once.
+- It works in Restricted Mode (untrusted windows) — it only touches the local editor UI, never workspace contents.
+- `Disable Cursor Trail` restores the original file byte for byte (CSP included); uninstalling the extension does the
+  same cleanup automatically.
 
-| 设置项 | 类型 | 默认值 | 说明 |
+## Settings
+
+Search for `springyCursor` in Settings, then reload the window when prompted.
+
+| Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `springyCursor.autoEnable` | `boolean` | `true` | 首次启动自动完成注入，并在 VS Code 更新后自动重新打补丁 |
-| `springyCursor.color` | `string` | `"#FFC0CB"` | 拖尾颜色（`#RGB`、`#RRGGBB`、`#RRGGBBAA`）。**留空 `""` 时自动使用当前主题的 `--vscode-editorCursor-foreground`** |
-| `springyCursor.opacity` | `number` | `1` | 拖尾不透明度（`0` ~ `1`） |
-| `springyCursor.glow` | `boolean` | `true` | 是否绘制发光阴影 |
-| `springyCursor.glowBlur` | `number` | `0.5` | 发光模糊半径（光标尺寸的倍数） |
-| `springyCursor.preset` | `string` | `"neovide"` | 手感预设：`neovide`（经典高弹性）、`subtle`（短促克制）、`zed`（平滑紧致，无前端硬吸附）、`custom`（自定义高级参数） |
-| `springyCursor.animationLength` | `number` | `0.125` | 远距离跳转动画时长（秒），仅 `custom` 预设生效 |
-| `springyCursor.shortAnimationLength` | `number` | `0.05` | 同行短距离移动（如打字）动画时长（秒），仅 `custom` 预设生效 |
-| `springyCursor.animateOnTyping` | `boolean` | `true` | 打字（同行短距离移动）时是否启用拖尾 |
-| `springyCursor.animateOnSelection` | `boolean` | `true` | 选择文本时是否启用拖尾 |
-| `springyCursor.rankTrailFactors` | `number[]` | `[1, 0.9, 0.5, 0.3]` | 四个角点从最滞后（rank 0）到最领先（rank 3）的时长倍率，仅 `custom` 预设生效 |
-| `springyCursor.hardSnap` | `boolean` | `true` | 移动方向前端角点是否快速吸附，仅 `custom` 预设生效 |
-| `springyCursor.leadingSnapFactor` | `number` | `0.16` | 前端角点吸附时长倍率，仅 `custom` 预设生效 |
-| `springyCursor.leadingSnapThreshold` | `number` | `0.5` | 判定为前端角点的方向对齐度阈值（`0` ~ `1`），仅 `custom` 预设生效 |
+| `springyCursor.autoEnable` | boolean | `true` | Patch automatically on first start and after a VS Code update |
+| `springyCursor.color` | string | `"#FFC0CB"` | Trail color. Leave empty to use the theme's `--vscode-editorCursor-foreground` |
+| `springyCursor.opacity` | number | `1` | Trail opacity (0–1) |
+| `springyCursor.glow` | boolean | `true` | Draw a glow around the trail |
+| `springyCursor.glowBlur` | number | `0.5` | Glow blur radius as a multiple of the cursor size |
+| `springyCursor.preset` | string | `"neovide"` | `neovide`, `subtle`, `zed` or `custom` |
+| `springyCursor.animationLength` | number | `0.125` | Jump animation length in seconds (custom preset) |
+| `springyCursor.shortAnimationLength` | number | `0.05` | Same-line moves such as typing (custom preset) |
+| `springyCursor.animateOnTyping` | boolean | `true` | Animate short single-line moves |
+| `springyCursor.animateOnSelection` | boolean | `true` | Animate while selecting text |
+| `springyCursor.rankTrailFactors` | number[] | `[1, 0.9, 0.5, 0.3]` | Per-corner duration multipliers, most trailing first |
+| `springyCursor.hardSnap` | boolean | `true` | Snap leading corners quickly for the elastic stretch |
+| `springyCursor.leadingSnapFactor` | number | `0.1` | Animation-length multiplier for leading corners |
+| `springyCursor.leadingSnapThreshold` | number | `0.5` | Direction alignment above which a corner counts as leading |
 
-## 禁用与卸载
+## Limitations
 
-1. 在命令面板执行 **`Springy Cursor: Disable Cursor Trail`**：从 `workbench.html` 中移除本扩展的注入块（其他自定义 CSS/JS 一律不动），并还原校验值。
-2. 按提示点击 **`Reload Window`**。
+- Changing a setting needs one window reload, because the script is inlined into `workbench.html`.
+- The VS Code installation directory has to be writable. Installs under `C:\Program Files` need elevation; if the
+  checksum cannot be rewritten the "installation appears to be corrupt" notice stays and can be silenced with
+  *Don't Show Again*.
 
-> 直接在扩展面板卸载时也会自动清理：还原 `workbench.html`（含 CSP）、同步校验值、删除 pristine 备份，不会留下一个还在跑却没人能关的拖尾。
-3. 在扩展面板卸载 **Springy Cursor**。
+## 中文说明
 
-## 本地开发与测试
+Neovide / Zed 风格的光标拖尾扩展，用四角阻尼弹簧驱动光标块，附带拖尾与发光。空闲时完全停止 `requestAnimationFrame`，跟随 HiDPI，绘制裁剪在编辑器内，支持多光标与分屏。
 
-- 本地测试台：`playground/index.html` 基于 `monaco-editor` 提供单行打字、跨行跳转、多光标、分屏跳转、滚动贴合、选区跳转及空闲 5 秒 `rAF` 计数验证。
-- 打包 VSIX：
-  ```bash
-  npx @vscode/vsce package
-  ```
+**安装**：从 Marketplace 安装（不需要额外插件）→ 首次启动自动完成注入 → 按提示点一次 `Reload Window`。
 
-## 许可证
+**注意**：改设置需要重载一次窗口；VS Code 升级后扩展会自动补回注入，无需手动操作；`Disable Cursor Trail` 会把 `workbench.html` 按原始字节还原，卸载扩展时也会自动清理。
 
-[MIT](./LICENSE)
+## License
+
+MIT. Original work by [LengineerC](https://github.com/LengineerC/vscode-neovide-cursor), fork maintained at
+[30d98f9b2/Neovide-Cursor](https://github.com/30d98f9b2/Neovide-Cursor).
