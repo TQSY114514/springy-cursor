@@ -54,7 +54,7 @@ Search for `springyCursor` in Settings, then reload the window when prompted.
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `springyCursor.autoEnable` | boolean | `true` | Patch automatically on first start and after a VS Code update |
-| `springyCursor.color` | string | `"#FFC0CB"` | Trail color. Leave empty to follow `--vscode-editorCursor-foreground`, which is re-read every frame so theme changes apply live |
+| `springyCursor.color` | string | `""` | Trail color. Empty (the default) follows `--vscode-editorCursor-foreground`, re-read every frame so theme changes apply live. Set e.g. `#FFC0CB` for the pink used in the screenshots |
 | `springyCursor.opacity` | number | `1` | Trail opacity (0–1) |
 | `springyCursor.glow` | boolean | `true` | Draw a glow around the trail |
 | `springyCursor.glowBlur` | number | `0.5` | Glow blur radius as a multiple of the cursor size |

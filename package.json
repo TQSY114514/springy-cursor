@@ -2,7 +2,7 @@
 	"name": "springy-cursor",
 	"displayName": "Springy Cursor",
 	"description": "Neovide-like animated cursor trail for VS Code",
-	"version": "0.2.4",
+	"version": "0.2.5",
 	"publisher": "tqsy",
 	"license": "MIT",
 	"repository": {
@@ -60,7 +60,7 @@
 				},
 				"springyCursor.color": {
 					"type": "string",
-					"default": "#FFC0CB",
+					"default": "",
 					"pattern": "^(#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8}))?$",
 					"description": "Trail color as #RGB, #RRGGBB or #RRGGBBAA. Leave empty to use the theme's cursor color (--vscode-editorCursor-foreground)."
 				},
