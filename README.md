@@ -2,7 +2,7 @@
 
 Neovide / Zed style animated cursor trail for VS Code.
 
-![cursor trail](https://raw.githubusercontent.com/TQSY114514/springy-cursor/main/docs/trail-horizontal.png)
+![cursor trail](https://cdn.jsdelivr.net/gh/TQSY114514/springy-cursor@main/docs/trail-horizontal.png)
 
 Based on [Neovide-Cursor](https://github.com/30d98f9b2/Neovide-Cursor) by LengineerC (MIT), with the runtime
 rewritten: idle CPU is zero, the trail follows `devicePixelRatio`, it never paints outside the editor, and the
@@ -21,6 +21,8 @@ settings live in VS Code instead of a JS file inside the extension folder.
 - **Multi-cursor and split views** are picked up immediately.
 - **Presets:** `neovide` (classic elastic), `subtle` (short and restrained), `zed` (smooth, no hard leading snap) and
   `custom`.
+
+![cursor trail on a line jump](https://cdn.jsdelivr.net/gh/TQSY114514/springy-cursor@main/docs/trail-vertical.png)
 
 ## Install
 
