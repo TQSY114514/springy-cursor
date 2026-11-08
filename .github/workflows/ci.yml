@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # patching.js and its tests only use Node builtins, so no install needed.
+      - run: node --version
+      - run: npm test
+
+  package:
+    name: Package VSIX
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check the manifest declares an existing icon
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            if (pkg.icon && !fs.existsSync(pkg.icon)) {
+              console.error(`package.json declares icon ${pkg.icon} but the file is missing`);
+              process.exit(1);
+            }
+            if (!fs.existsSync(pkg.main)) {
+              console.error(`package.json declares main ${pkg.main} but the file is missing`);
+              process.exit(1);
+            }
+            console.log(`manifest ok: ${pkg.publisher}.${pkg.name}@${pkg.version}`);
+          '
+      - name: Package (no publisher credentials needed to build)
+        run: npx --yes @vscode/vsce@latest package --allow-missing-repository --skip-license
+      - name: Verify the VSIX contains the runtime and the uninstall hook
+        run: |
+          node -e '
+            const { execSync } = require("child_process");
+            const file = require("fs").readdirSync(".").find((f) => f.endsWith(".vsix"));
+            if (!file) { console.error("no .vsix produced"); process.exit(1); }
+            const list = execSync(`unzip -l ${file}`).toString();
+            const required = ["extension/patching.js", "extension/uninstall.js", "extension/runtime/springy-cursor.js", "extension/package.json"];
+            const missing = required.filter((entry) => !list.includes(entry));
+            if (missing.length) { console.error("missing from VSIX: " + missing.join(", ")); process.exit(1); }
+            console.log(`${file} contains ${required.length} expected files`);
+          '
