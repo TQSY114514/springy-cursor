@@ -2,7 +2,7 @@
 	"name": "springy-cursor",
 	"displayName": "Springy Cursor",
 	"description": "Neovide-like animated cursor trail for VS Code",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"publisher": "tqsy",
 	"license": "MIT",
 	"repository": {
@@ -26,6 +26,9 @@
 		"onStartupFinished"
 	],
 	"main": "./extension.js",
+	"scripts": {
+		"vscode:uninstall": "node ./uninstall.js"
+	},
 	"capabilities": {
 		"untrustedWorkspaces": {
 			"supported": true,
