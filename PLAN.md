@@ -105,6 +105,8 @@
 - **`vscode:uninstall` 钩子已做**（`scripts.vscode:uninstall` → `uninstall.js`）。卸载扩展时会还原 `workbench.html`（含 CSP）、重新同步 `product.json` 校验值、删掉 pristine 备份——以前直接卸载会留下注入，拖尾继续跑却没有扩展能关掉它。该钩子里没有 `vscode` API，`appRoot` 由 `patching.appRootFromExecPath(process.execPath)` 从安装根目录扫描 `<hash>/resources/app` 得到。
 - **注入逻辑已拆成 `patching.js`**（纯 Node，不 import `vscode`），扩展与卸载钩子共用：`patch` / `unpatch` / `stripOwn` / `syncChecksum` / `ensurePristine` / `removePristine` / `appRootFromExecPath`。`extension.js` 只剩 vscode 相关的部分（渲染配置、命令、弹窗、`globalState`）。
 
+- **`node:test` 单测已做**（`npm test`，`test/patching.test.js`，10 条）：打补丁的插入位置 / CSP 移除 / 校验值同步 / pristine 备份、重复打补丁幂等、还原后与原始文件逐字节一致、别人的内联脚本不被误删、没有 `workbench.html` 时返回 `unavailable`、`appRootFromExecPath` 的三种输入、`electron-sandbox` 布局同样处理，以及 `patch()` 在调用方忘记带 sentinel 时自己补上。测试全在临时目录里跑，不碰真实安装。
+
 仍未做：
 
-- `node:test` 单测（关键路径已由真机 E2E 覆盖；`patching.js` 已经是纯函数，后续补测试成本低）。
+- 发布到 Marketplace / Open VSX（英文 README、图标、截图、publisher 账号）。
